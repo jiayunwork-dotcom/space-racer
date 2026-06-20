@@ -140,7 +140,7 @@ let ctx: CanvasRenderingContext2D | null = null;
 const difficulty = ref(3);
 const lengthFactor = ref(1.0);
 const trackWidth = ref(120);
-const seed = ref(Math.floor(Date.now() / 1000));
+const seed = ref(Math.floor(Math.random() * 1000000));
 
 const currentTrack = ref<Track | null>(null);
 const isGenerating = ref(false);
@@ -605,6 +605,7 @@ onMounted(() => {
 
 .seed-input {
   flex: 1;
+  min-width: 140px;
   padding: 8px 12px;
   font-size: 14px;
   color: #fff;
@@ -613,6 +614,7 @@ onMounted(() => {
   border-radius: 6px;
   outline: none;
   font-family: monospace;
+  letter-spacing: 1px;
 }
 
 .seed-input:focus {
@@ -742,8 +744,16 @@ onMounted(() => {
 }
 
 .generate-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  background: linear-gradient(135deg, #555, #666);
+  box-shadow: none;
+  transform: none;
+}
+
+.generate-btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .save-btn {
@@ -758,8 +768,16 @@ onMounted(() => {
 }
 
 .save-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  background: linear-gradient(135deg, #555, #666);
+  box-shadow: none;
+  transform: none;
+}
+
+.save-btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .generate-btn span:first-child,

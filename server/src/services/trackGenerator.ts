@@ -102,9 +102,7 @@ function createBezierControlPoints(knotPoints: Vector2[]): Vector2[] {
     }
     controlPoints.push(cp1);
     controlPoints.push(cp2);
-    if (i === n - 1) {
-      controlPoints.push(next);
-    }
+    controlPoints.push(next);
   }
 
   return controlPoints;
@@ -169,10 +167,17 @@ function sampleClosedBezier(controlPoints: Vector2[], segments: number): { point
   const samples: { point: Vector2; tangent: Vector2; normal: Vector2; t: number }[] = [];
 
   const n = controlPoints.length;
-  const curveCount = (n - 1) / 3;
+  const curveCount = Math.floor((n - 1) / 3);
+
+  if (curveCount < 1 || n < 4) {
+    return samples;
+  }
 
   for (let i = 0; i < curveCount; i++) {
     const startIdx = i * 3;
+    if (startIdx + 3 >= n) {
+      break;
+    }
     const curvePoints = [
       controlPoints[startIdx],
       controlPoints[startIdx + 1],
@@ -180,7 +185,7 @@ function sampleClosedBezier(controlPoints: Vector2[], segments: number): { point
       controlPoints[startIdx + 3]
     ];
 
-    const segsPerCurve = Math.ceil(segments / curveCount);
+    const segsPerCurve = Math.max(1, Math.ceil(segments / curveCount));
     for (let j = 0; j < segsPerCurve; j++) {
       const t = j / segsPerCurve;
       samples.push({
