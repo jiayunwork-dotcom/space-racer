@@ -31,6 +31,11 @@
           <span>赛道编辑器</span>
         </button>
         
+        <button class="menu-btn generator" @click="goToTrackGenerator">
+          <span class="btn-icon">🎲</span>
+          <span>随机赛道</span>
+        </button>
+        
         <button class="menu-btn" @click="goToLeaderboard">
           <span class="btn-icon">🏆</span>
           <span>排行榜</span>
@@ -146,6 +151,11 @@ function goToGhostRace() {
 function goToTournaments() {
   saveSettings();
   router.push('/tournaments');
+}
+
+function goToTrackGenerator() {
+  saveSettings();
+  router.push('/track-generator');
 }
 </script>
 
@@ -275,6 +285,17 @@ function goToTournaments() {
 
 .menu-btn.tournament:hover {
   box-shadow: 0 6px 30px rgba(245, 87, 108, 0.6);
+  transform: translateY(-2px);
+}
+
+.menu-btn.generator {
+  background: linear-gradient(135deg, #ffd93d, #ff9500);
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(255, 149, 0, 0.4);
+}
+
+.menu-btn.generator:hover {
+  box-shadow: 0 6px 30px rgba(255, 149, 0, 0.6);
   transform: translateY(-2px);
 }
 

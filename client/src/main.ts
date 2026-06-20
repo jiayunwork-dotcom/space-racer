@@ -13,6 +13,7 @@ import ReplayView from './views/ReplayView.vue'
 import TournamentLobby from './views/TournamentLobby.vue'
 import TournamentDetail from './views/TournamentDetail.vue'
 import Spectate from './views/Spectate.vue'
+import TrackGenerator from './views/TrackGenerator.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -28,7 +29,8 @@ const router = createRouter({
     { path: '/replay/:replayId', component: ReplayView },
     { path: '/tournaments', component: TournamentLobby },
     { path: '/tournament/:tournamentId', component: TournamentDetail },
-    { path: '/spectate/:roomId', component: Spectate }
+    { path: '/spectate/:roomId', component: Spectate },
+    { path: '/track-generator', component: TrackGenerator }
   ]
 })
 

@@ -15,6 +15,7 @@ import {
   getStandings,
   markStageRacing
 } from './services/tournaments';
+import { generateTrack } from './services/trackGenerator';
 import type { Track } from './types/game';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -86,6 +87,49 @@ app.post('/api/tracks', async (request, reply) => {
   } catch (error) {
     reply.code(400);
     return { error: 'Invalid track data' };
+  }
+});
+
+app.post('/api/tracks/generate', async (request, reply) => {
+  try {
+    const body = request.body as any;
+    const difficulty = parseInt(body.difficulty) || 3;
+    const lengthFactor = parseFloat(body.lengthFactor) || 1.0;
+    const trackWidth = parseInt(body.trackWidth) || 120;
+    const seed = parseInt(body.seed) || Date.now();
+
+    if (difficulty < 1 || difficulty > 5) {
+      reply.code(400);
+      return { error: '难度等级必须在 1-5 之间' };
+    }
+    if (lengthFactor < 0.5 || lengthFactor > 2.0) {
+      reply.code(400);
+      return { error: '赛道长度系数必须在 0.5-2.0 之间' };
+    }
+    if (trackWidth < 80 || trackWidth > 200) {
+      reply.code(400);
+      return { error: '赛道宽度必须在 80-200 像素之间' };
+    }
+
+    const track = generateTrack({
+      difficulty,
+      lengthFactor,
+      trackWidth,
+      seed
+    });
+
+    if (!track) {
+      reply.code(500);
+      return { error: '赛道生成失败，请重试' };
+    }
+
+    await saveTrack(track);
+
+    return { track };
+  } catch (error) {
+    console.error('Track generation error:', error);
+    reply.code(500);
+    return { error: '赛道生成失败' };
   }
 });
 
