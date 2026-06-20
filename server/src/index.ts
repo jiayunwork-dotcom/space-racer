@@ -1,8 +1,8 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack } from './services/redis';
-import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer } from './services/rooms';
+import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack, getRaceReplay, getRaceReplaysForRoom, getLatestRaceReplayForRoom } from './services/redis';
+import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer, getLastRaceReplayId } from './services/rooms';
 import type { Track } from './types/game';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -93,6 +93,39 @@ app.get('/api/replay/:id', async (request, reply) => {
     return { error: 'Replay not found' };
   }
   return { replay };
+});
+
+app.get('/api/race-replay/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const replay = await getRaceReplay(id);
+  if (!replay) {
+    reply.code(404);
+    return { error: 'Race replay not found' };
+  }
+  return { replay };
+});
+
+app.get('/api/race-replays/room/:roomId', async (request, reply) => {
+  const { roomId } = request.params as { roomId: string };
+  const replays = await getRaceReplaysForRoom(roomId);
+  return { replays };
+});
+
+app.get('/api/rooms/:roomId/latest-replay', async (request, reply) => {
+  const { roomId } = request.params as { roomId: string };
+  const replayId = getLastRaceReplayId(roomId);
+  if (replayId) {
+    const replay = await getRaceReplay(replayId);
+    if (replay) {
+      return { replayId, replay };
+    }
+  }
+  const latestReplay = await getLatestRaceReplayForRoom(roomId);
+  if (!latestReplay) {
+    reply.code(404);
+    return { error: 'No replay found' };
+  }
+  return { replayId: latestReplay.id, replay: latestReplay };
 });
 
 app.post('/api/rooms', async (request) => {

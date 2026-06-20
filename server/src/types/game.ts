@@ -208,6 +208,101 @@ export interface Replay {
   createdAt: number;
 }
 
+export type ReplayEventType = 'item_pickup' | 'item_use' | 'collision_ship' | 'collision_boundary' | 'collision_asteroid' | 'lap_complete' | 'race_finish';
+
+export interface ReplayEvent {
+  id: string;
+  timestamp: number;
+  type: ReplayEventType;
+  playerId: string;
+  playerName: string;
+  position?: Vector2;
+  itemType?: ItemType;
+  targetPlayerId?: string;
+  targetPlayerName?: string;
+  lap?: number;
+  lapTime?: number;
+}
+
+export interface ShipReplayFrame {
+  playerId: string;
+  playerName: string;
+  colorIndex: ShipColorIndex;
+  position: Vector2;
+  velocity: Vector2;
+  angle: number;
+  shield: number;
+  maxShield: number;
+  lap: number;
+  currentCheckpoint: number;
+  boostEndTime: number;
+  stunnedUntil: number;
+  slowdownUntil: number;
+  item: ItemType | null;
+  isRespawning: boolean;
+  finished: boolean;
+}
+
+export interface RaceReplayFrame {
+  timestamp: number;
+  ships: ShipReplayFrame[];
+  projectiles: Array<{
+    id: string;
+    type: 'missile';
+    position: Vector2;
+    velocity: Vector2;
+    ownerId: string;
+  }>;
+  mines: Array<{
+    id: string;
+    position: Vector2;
+  }>;
+  itemSpawners: Array<{
+    id: string;
+    position: Vector2;
+    currentItem: ItemType | null;
+  }>;
+}
+
+export interface LapTime {
+  lap: number;
+  time: number;
+}
+
+export interface PlayerRaceStats {
+  playerId: string;
+  playerName: string;
+  colorIndex: ShipColorIndex;
+  totalTime: number | null;
+  bestLapTime: number | null;
+  lapTimes: LapTime[];
+  itemPickups: number;
+  itemUses: number;
+  collisions: number;
+  finishPosition: number | null;
+}
+
+export interface RaceReplay {
+  id: string;
+  roomId: string;
+  trackId: string;
+  trackName: string;
+  totalLaps: number;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  frames: RaceReplayFrame[];
+  events: ReplayEvent[];
+  players: PlayerRaceStats[];
+  collisions: Array<{
+    position: Vector2;
+    timestamp: number;
+    type: 'ship' | 'boundary' | 'asteroid';
+    playerId: string;
+  }>;
+  createdAt: number;
+}
+
 export const PHYSICS_CONFIG = {
   linearDrag: 0.02,
   elasticCollisionEnergyLoss: 0.7,

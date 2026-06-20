@@ -1,7 +1,22 @@
-import type { Room, Player, Track, Ship, EngineType, ShipColorIndex, Replay, ReplayFrame } from '../types/game';
+import type { Room, Player, Track, Ship, EngineType, ShipColorIndex, Replay, ReplayFrame, RaceReplay } from '../types/game';
 import { v4 as uuidv4 } from 'uuid';
-import { getTrack, incrementTrackPlayCount, addLeaderboardEntry, addGlobalWin, addGlobalRace, saveReplay } from './redis';
+import { getTrack, incrementTrackPlayCount, addLeaderboardEntry, addGlobalWin, addGlobalRace, saveReplay, saveRaceReplay, getRaceReplay } from './redis';
 import { createGameEngine, createShip, updateGame, getRaceResults, type GameEngineState } from '../game/engine';
+import {
+  createReplayRecorder,
+  startRecording,
+  recordFrame,
+  recordItemPickup,
+  recordItemUse,
+  recordShipCollision,
+  recordBoundaryCollision,
+  recordAsteroidCollision,
+  recordLapComplete,
+  recordRaceFinish,
+  buildRaceReplay,
+  type ReplayRecorderState
+} from '../game/replayRecorder';
+import { vecLength } from '../utils/vector';
 
 interface RoomState {
   room: Room;
@@ -11,6 +26,8 @@ interface RoomState {
   updateInterval: NodeJS.Timeout | null;
   replayData: Map<string, ReplayFrame[]>;
   raceStartTime: number;
+  replayRecorder: ReplayRecorderState | null;
+  lastRaceReplayId: string | null;
 }
 
 const rooms = new Map<string, RoomState>();
@@ -61,7 +78,9 @@ export function createRoom(
     lastUpdate: 0,
     updateInterval: null,
     replayData: new Map(),
-    raceStartTime: 0
+    raceStartTime: 0,
+    replayRecorder: null,
+    lastRaceReplayId: null
   });
 
   return room;
@@ -220,6 +239,16 @@ export async function startGame(roomId: string, hostId: string): Promise<Room | 
     state.replayData.set(player.id, []);
   }
 
+  const playerIds = readyPlayers.map(p => p.id);
+  state.replayRecorder = createReplayRecorder(
+    room.id,
+    track.id,
+    track.name,
+    room.totalLaps,
+    playerIds
+  );
+  state.lastRaceReplayId = null;
+
   room.gameState = 'countdown';
   room.countdownEndTime = Date.now() + 3000;
 
@@ -237,6 +266,7 @@ function startGameLoop(roomId: string): void {
   const tickRate = 60;
   const tickInterval = 1000 / tickRate;
   let recordFrameCounter = 0;
+  let raceStarted = false;
 
   state.updateInterval = setInterval(() => {
     const s = rooms.get(roomId);
@@ -246,24 +276,105 @@ function startGameLoop(roomId: string): void {
     
     if (s.room.gameState === 'racing' && s.raceStartTime === 0) {
       s.raceStartTime = now;
+      if (s.replayRecorder) {
+        startRecording(s.replayRecorder, now);
+        raceStarted = true;
+      }
     }
+
+    const prevShipStates = new Map<string, {
+      shield: number;
+      item: typeof s.room.ships[0]['item'];
+      lap: number;
+      finished: boolean;
+      boostEndTime: number;
+    }>();
+
+    for (const ship of s.room.ships) {
+      prevShipStates.set(ship.playerId, {
+        shield: ship.shield,
+        item: ship.item,
+        lap: ship.lap,
+        finished: ship.finished,
+        boostEndTime: ship.boostEndTime
+      });
+    }
+
+    const prevShipCount = s.room.ships.length;
+    const prevProjectileCount = s.room.projectiles.length;
+    const prevMineCount = s.room.mines.length;
 
     updateGame(s.engine, now);
 
-    if (s.room.gameState === 'racing') {
+    if (s.room.gameState === 'racing' && s.replayRecorder && raceStarted) {
+      for (const ship of s.room.ships) {
+        const prev = prevShipStates.get(ship.playerId);
+        if (!prev) continue;
+
+        if (prev.item === null && ship.item !== null) {
+          recordItemPickup(s.replayRecorder, ship, ship.item, now);
+        }
+
+        if (prev.item !== null && ship.item === null && prev.boostEndTime === ship.boostEndTime) {
+          const itemType = prev.item;
+          if (itemType === 'shield' && ship.shield > prev.shield) {
+            recordItemUse(s.replayRecorder, ship, itemType, now);
+          } else if (itemType === 'boost' && ship.boostEndTime > prev.boostEndTime) {
+            recordItemUse(s.replayRecorder, ship, itemType, now);
+          } else if (itemType === 'missile' && s.room.projectiles.length > prevProjectileCount) {
+            recordItemUse(s.replayRecorder, ship, itemType, now);
+          } else if (itemType === 'mine' && s.room.mines.length > prevMineCount) {
+            recordItemUse(s.replayRecorder, ship, itemType, now);
+          } else if (itemType === 'emp') {
+            recordItemUse(s.replayRecorder, ship, itemType, now);
+          }
+        }
+
+        if (ship.shield < prev.shield && ship.shield > 0) {
+          const damage = prev.shield - ship.shield;
+          if (damage >= 10 && damage < 25) {
+            recordBoundaryCollision(s.replayRecorder, ship, now);
+          } else if (damage >= 20) {
+            recordShipCollision(s.replayRecorder, ship, 
+              s.room.ships.find(s2 => s2.playerId !== ship.playerId) || ship, 
+              now);
+          }
+        }
+
+        if (ship.lap > prev.lap && ship.lap > 0) {
+          const lapTime = now - ship.lapStartTime + (ship.lapStartTime > 0 ? 0 : 0);
+          if (ship.bestLapTime) {
+            recordLapComplete(s.replayRecorder, ship, ship.lap, ship.bestLapTime, now);
+          }
+        }
+
+        if (ship.finished && !prev.finished) {
+          recordRaceFinish(s.replayRecorder, ship, ship.finishPosition || 1, now);
+        }
+      }
+
       recordFrameCounter++;
       if (recordFrameCounter % 2 === 0) {
-        const elapsed = now - s.raceStartTime;
-        for (const ship of s.room.ships) {
-          const frames = s.replayData.get(ship.playerId);
-          if (frames && !ship.finished) {
-            frames.push({
-              timestamp: elapsed,
-              position: { ...ship.position },
-              velocity: { ...ship.velocity },
-              angle: ship.angle
-            });
-          }
+        recordFrame(
+          s.replayRecorder,
+          s.room.ships,
+          s.room.projectiles,
+          s.room.mines,
+          s.room.itemSpawners,
+          now
+        );
+      }
+
+      const elapsed = now - s.raceStartTime;
+      for (const ship of s.room.ships) {
+        const frames = s.replayData.get(ship.playerId);
+        if (frames && !ship.finished) {
+          frames.push({
+            timestamp: elapsed,
+            position: { ...ship.position },
+            velocity: { ...ship.velocity },
+            angle: ship.angle
+          });
         }
       }
     }
@@ -284,6 +395,16 @@ function handleRaceFinish(roomId: string): void {
   }
 
   const results = getRaceResults(state.engine);
+
+  if (state.replayRecorder) {
+    const raceReplay = buildRaceReplay(
+      state.replayRecorder,
+      state.room.ships,
+      Date.now()
+    );
+    saveRaceReplay(raceReplay);
+    state.lastRaceReplayId = raceReplay.id;
+  }
 
   for (let i = 0; i < results.length; i++) {
     const ship = results[i];
@@ -314,6 +435,11 @@ function handleRaceFinish(roomId: string): void {
       }
     }
   }
+}
+
+export function getLastRaceReplayId(roomId: string): string | null {
+  const state = rooms.get(roomId);
+  return state?.lastRaceReplayId || null;
 }
 
 export function setPlayerInput(

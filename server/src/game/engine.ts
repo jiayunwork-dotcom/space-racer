@@ -1,4 +1,4 @@
-import type { Room, Ship, Track, InputState, Player, EnvElement, ItemSpawner, Projectile, Mine } from '../types/game';
+import type { Room, Ship, Track, InputState, Player, EnvElement, ItemSpawner, Projectile, Mine, ItemType } from '../types/game';
 import { PHYSICS_CONFIG, ENGINE_CONFIGS } from '../types/game';
 import { v4 as uuidv4 } from 'uuid';
 import { sampleBezier, type BezierSample } from '../utils/bezier';
@@ -6,6 +6,20 @@ import { vec2 } from '../utils/vector';
 import { updateShipPhysics, updateShipCollisions } from './physics';
 import { checkCheckpoint, checkRaceFinish, getSortedShips } from './checkpoints';
 import { updateItemSpawners, checkItemPickup, useItem, updateProjectiles, updateMines } from './items';
+
+export interface EngineEvent {
+  type: 'item_pickup' | 'item_use' | 'collision_ship' | 'collision_boundary' | 'collision_asteroid' | 'lap_complete' | 'race_finish';
+  timestamp: number;
+  playerId: string;
+  playerName: string;
+  position?: { x: number; y: number };
+  itemType?: ItemType;
+  targetPlayerId?: string;
+  targetPlayerName?: string;
+  lap?: number;
+  lapTime?: number;
+  finishPosition?: number;
+}
 
 export interface GameEngineState {
   room: Room;
@@ -15,11 +29,28 @@ export interface GameEngineState {
   inputs: Map<string, InputState>;
   lastUpdateTime: number;
   finishCount: number;
+  events: EngineEvent[];
+  prevShieldValues: Map<string, number>;
+  prevItems: Map<string, ItemType | null>;
+  prevLaps: Map<string, number>;
+  prevFinished: Map<string, boolean>;
 }
 
 export function createGameEngine(room: Room, track: Track): GameEngineState {
   const outerSamples = sampleBezier(track.outerBoundary.controlPoints, 200);
   const innerSamples = sampleBezier(track.innerBoundary.controlPoints, 200);
+
+  const prevShieldValues = new Map<string, number>();
+  const prevItems = new Map<string, ItemType | null>();
+  const prevLaps = new Map<string, number>();
+  const prevFinished = new Map<string, boolean>();
+
+  for (const ship of room.ships) {
+    prevShieldValues.set(ship.playerId, ship.shield);
+    prevItems.set(ship.playerId, ship.item);
+    prevLaps.set(ship.playerId, ship.lap);
+    prevFinished.set(ship.playerId, ship.finished);
+  }
 
   return {
     room,
@@ -28,7 +59,12 @@ export function createGameEngine(room: Room, track: Track): GameEngineState {
     innerSamples,
     inputs: new Map(),
     lastUpdateTime: 0,
-    finishCount: 0
+    finishCount: 0,
+    events: [],
+    prevShieldValues,
+    prevItems,
+    prevLaps,
+    prevFinished
   };
 }
 

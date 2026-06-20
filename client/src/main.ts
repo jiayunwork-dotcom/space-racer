@@ -9,6 +9,7 @@ import RoomList from './views/RoomList.vue'
 import RoomLobby from './views/RoomLobby.vue'
 import GhostRace from './views/GhostRace.vue'
 import GhostRaceGame from './views/GhostRaceGame.vue'
+import ReplayView from './views/ReplayView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,7 +21,8 @@ const router = createRouter({
     { path: '/rooms', component: RoomList },
     { path: '/room/:roomId', component: RoomLobby },
     { path: '/ghost-race', component: GhostRace },
-    { path: '/ghost-race-game', component: GhostRaceGame }
+    { path: '/ghost-race-game', component: GhostRaceGame },
+    { path: '/replay/:replayId', component: ReplayView }
   ]
 })
 

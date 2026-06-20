@@ -20,7 +20,10 @@
             <span class="time">{{ ship.finishTime ? formatTime(ship.finishTime - raceStartTime) : '未完成' }}</span>
           </div>
         </div>
-        <button class="back-btn" @click="backToLobby">返回大厅</button>
+        <div class="result-buttons">
+          <button class="replay-btn" @click="viewReplay">查看回放</button>
+          <button class="back-btn" @click="backToLobby">返回大厅</button>
+        </div>
       </div>
     </div>
 
@@ -249,6 +252,23 @@ function formatTime(ms: number): string {
 function backToLobby() {
   router.push(`/room/${roomId.value}`);
 }
+
+async function viewReplay() {
+  try {
+    const res = await fetch(`/api/rooms/${roomId.value}/latest-replay`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.replayId) {
+        router.push(`/replay/${data.replayId}`);
+      }
+    } else {
+      alert('回放数据生成中，请稍候再试...');
+    }
+  } catch (e) {
+    console.error('Failed to get replay:', e);
+    alert('获取回放失败，请稍后重试');
+  }
+}
 </script>
 
 <style scoped>
@@ -376,6 +396,35 @@ function backToLobby() {
 .back-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(78, 205, 196, 0.4);
+}
+
+.result-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.replay-btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 16px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s;
+}
+
+.replay-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.back-btn {
+  flex: 1;
+  width: auto;
 }
 
 .pause-overlay {
