@@ -37,7 +37,7 @@ export interface TrackScore {
   checkpointUniformity: number;
 }
 
-const CURVATURE_THRESHOLD = 1 / 200;
+const CURVATURE_THRESHOLD = 0.0008;
 
 const BASE_CIRCUMFERENCE = 3000;
 const MIN_CONTROL_POINTS = 8;
@@ -857,16 +857,41 @@ function computeArcLengths(
   return lengths;
 }
 
-function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): number {
-  const isCurve = curvatures.map(c => c > CURVATURE_THRESHOLD);
+interface WeightedStats {
+  mean: number;
+  stdDev: number;
+  cv: number;
+}
 
-  let totalArcLen = 0;
-  for (const l of arcLengths) totalArcLen += l;
+function computeWeightedStats(values: number[], weights: number[]): WeightedStats {
+  let totalWeight = 0;
+  let weightedSum = 0;
+  for (let i = 0; i < values.length; i++) {
+    weightedSum += values[i] * weights[i];
+    totalWeight += weights[i];
+  }
+  const mean = totalWeight > 0 ? weightedSum / totalWeight : 0;
+
+  let varianceSum = 0;
+  for (let i = 0; i < values.length; i++) {
+    varianceSum += weights[i] * Math.pow(values[i] - mean, 2);
+  }
+  const variance = totalWeight > 0 ? varianceSum / totalWeight : 0;
+  const stdDev = Math.sqrt(variance);
+
+  return { mean, stdDev, cv: mean > 0 ? stdDev / mean : 0 };
+}
+
+function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): number {
+  const stats = computeWeightedStats(curvatures, arcLengths);
+  const relativeCurvatures = curvatures.map(c => Math.abs(c - stats.mean));
+
+  const isCurve = relativeCurvatures.map(c => c > CURVATURE_THRESHOLD);
 
   interface CurveSection {
     startIdx: number;
     endIdx: number;
-    totalCurvature: number;
+    totalRelCurvature: number;
     totalWeight: number;
   }
 
@@ -876,10 +901,10 @@ function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): num
   for (let i = 0; i < curvatures.length; i++) {
     if (isCurve[i]) {
       if (!currentSection) {
-        currentSection = { startIdx: i, endIdx: i, totalCurvature: 0, totalWeight: 0 };
+        currentSection = { startIdx: i, endIdx: i, totalRelCurvature: 0, totalWeight: 0 };
       }
       currentSection.endIdx = i;
-      currentSection.totalCurvature += curvatures[i] * arcLengths[i];
+      currentSection.totalRelCurvature += relativeCurvatures[i] * arcLengths[i];
       currentSection.totalWeight += arcLengths[i];
     } else {
       if (currentSection) {
@@ -892,7 +917,7 @@ function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): num
     const lastSection = sections.length > 0 ? sections[sections.length - 1] : null;
     if (lastSection && lastSection.endIdx === curvatures.length - 1 && currentSection.startIdx === 0) {
       lastSection.endIdx = currentSection.endIdx;
-      lastSection.totalCurvature += currentSection.totalCurvature;
+      lastSection.totalRelCurvature += currentSection.totalRelCurvature;
       lastSection.totalWeight += currentSection.totalWeight;
     } else {
       sections.push(currentSection);
@@ -901,23 +926,30 @@ function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): num
 
   if (sections.length < 2) return 10;
 
-  const avgCurvatures = sections.map(s => s.totalWeight > 0 ? s.totalCurvature / s.totalWeight : 0);
+  const avgRelCurvatures = sections.map(s => s.totalWeight > 0 ? s.totalRelCurvature / s.totalWeight : 0);
 
   let totalDiff = 0;
   let diffCount = 0;
-  for (let i = 0; i < avgCurvatures.length; i++) {
-    const next = (i + 1) % avgCurvatures.length;
-    totalDiff += Math.abs(avgCurvatures[i] - avgCurvatures[next]);
+  for (let i = 0; i < avgRelCurvatures.length; i++) {
+    const next = (i + 1) % avgRelCurvatures.length;
+    totalDiff += Math.abs(avgRelCurvatures[i] - avgRelCurvatures[next]);
     diffCount++;
   }
 
   const avgDiff = totalDiff / diffCount;
-  const score = Math.min(100, (avgDiff / 0.004) * 100);
-  return Math.round(score * 100) / 100;
+
+  const richnessFromDiff = Math.min(100, (avgDiff / 0.002) * 100);
+  const richnessFromCount = Math.min(100, (sections.length / 12) * 100);
+  const richnessFromStdDev = Math.min(100, (stats.stdDev / 0.001) * 100);
+
+  const score = richnessFromDiff * 0.5 + richnessFromCount * 0.3 + richnessFromStdDev * 0.2;
+  return Math.round(Math.min(100, score) * 100) / 100;
 }
 
 function scoreStraightCurveRatio(curvatures: number[], arcLengths: number[]): number {
-  const isStraight = curvatures.map(c => c <= CURVATURE_THRESHOLD);
+  const stats = computeWeightedStats(curvatures, arcLengths);
+  const relativeCurvatures = curvatures.map(c => Math.abs(c - stats.mean));
+  const isStraight = relativeCurvatures.map(c => c <= CURVATURE_THRESHOLD);
 
   let straightLen = 0;
   let totalLen = 0;
