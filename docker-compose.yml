@@ -5,7 +5,7 @@ services:
     image: redis:7-alpine
     container_name: space-racer-redis
     ports:
-      - "6379:6379"
+      - "6399:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -34,7 +34,7 @@ services:
       dockerfile: Dockerfile
     container_name: space-racer-client
     ports:
-      - "80:80"
+      - "8088:80"
     depends_on:
       - server
 
