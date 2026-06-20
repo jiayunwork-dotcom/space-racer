@@ -1,7 +1,7 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack, getRaceReplay, getRaceReplaysForRoom, getLatestRaceReplayForRoom } from './services/redis';
+import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack, getRaceReplay, getRaceReplaysForRoom, getLatestRaceReplayForRoom, addTrackToLeaderboard, getTrackLeaderboard } from './services/redis';
 import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer, getLastRaceReplayId, addSpectator, removeSpectator, getGameStateForSpectator, checkDanmakuCooldown, getSpectatorCount } from './services/rooms';
 import {
   createTournament,
@@ -15,7 +15,7 @@ import {
   getStandings,
   markStageRacing
 } from './services/tournaments';
-import { generateTrack } from './services/trackGenerator';
+import { generateTrack, calculateTrackScore } from './services/trackGenerator';
 import type { Track } from './types/game';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -125,12 +125,30 @@ app.post('/api/tracks/generate', async (request, reply) => {
 
     await saveTrack(track);
 
-    return { track };
+    const score = calculateTrackScore(track);
+
+    const madeLeaderboard = await addTrackToLeaderboard({
+      trackId: track.id,
+      name: track.name,
+      score: score.total,
+      difficulty,
+      lengthFactor,
+      trackWidth,
+      seed,
+      createdAt: track.createdAt
+    });
+
+    return { track, score: { ...score, madeLeaderboard } };
   } catch (error) {
     console.error('Track generation error:', error);
     reply.code(500);
     return { error: '赛道生成失败' };
   }
+});
+
+app.get('/api/tracks/leaderboard', async () => {
+  const entries = await getTrackLeaderboard();
+  return { entries };
 });
 
 app.get('/api/rooms', async () => {

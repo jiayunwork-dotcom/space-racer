@@ -15,11 +15,11 @@
         <div class="param-section">
           <h3>难度等级</h3>
           <div class="param-row">
-            <input 
-              v-model.number="difficulty" 
-              type="range" 
-              min="1" 
-              max="5" 
+            <input
+              v-model.number="difficulty"
+              type="range"
+              min="1"
+              max="5"
               step="1"
               class="slider"
             />
@@ -31,11 +31,11 @@
         <div class="param-section">
           <h3>赛道长度</h3>
           <div class="param-row">
-            <input 
-              v-model.number="lengthFactor" 
-              type="range" 
-              min="0.5" 
-              max="2.0" 
+            <input
+              v-model.number="lengthFactor"
+              type="range"
+              min="0.5"
+              max="2.0"
               step="0.1"
               class="slider"
             />
@@ -47,11 +47,11 @@
         <div class="param-section">
           <h3>赛道宽度</h3>
           <div class="param-row">
-            <input 
-              v-model.number="trackWidth" 
-              type="range" 
-              min="80" 
-              max="200" 
+            <input
+              v-model.number="trackWidth"
+              type="range"
+              min="80"
+              max="200"
               step="10"
               class="slider"
             />
@@ -63,9 +63,9 @@
         <div class="param-section">
           <h3>随机种子</h3>
           <div class="param-row">
-            <input 
-              v-model.number="seed" 
-              type="number" 
+            <input
+              v-model.number="seed"
+              type="number"
               class="seed-input"
               placeholder="输入种子"
             />
@@ -94,17 +94,101 @@
         </div>
       </div>
 
-      <div class="preview-container">
-        <canvas 
-          ref="previewCanvas" 
-          class="preview-canvas"
-        ></canvas>
-        <div v-if="isGenerating" class="loading-overlay">
-          <div class="loading-spinner"></div>
-          <p>生成中...</p>
+      <div class="right-area">
+        <div class="preview-container">
+          <canvas
+            ref="previewCanvas"
+            class="preview-canvas"
+          ></canvas>
+          <div v-if="isGenerating" class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <p>生成中...</p>
+          </div>
+          <div v-if="error" class="error-overlay">
+            <p class="error-text">{{ error }}</p>
+          </div>
         </div>
-        <div v-if="error" class="error-overlay">
-          <p class="error-text">{{ error }}</p>
+
+        <div class="score-panel" v-if="trackScore">
+          <div class="score-header">
+            <span class="score-label">可玩性评分</span>
+            <span class="score-total" :class="scoreClass">{{ trackScore.total }}</span>
+          </div>
+          <div class="score-dimensions">
+            <div class="score-dim-row">
+              <span class="dim-name">弯道变化</span>
+              <div class="dim-bar-bg">
+                <div
+                  class="dim-bar-fill curvature-bar"
+                  :style="{ width: trackScore.curvatureRichness + '%' }"
+                ></div>
+              </div>
+              <span class="dim-val">{{ trackScore.curvatureRichness }}</span>
+            </div>
+            <div class="score-dim-row">
+              <span class="dim-name">直弯比例</span>
+              <div class="dim-bar-bg">
+                <div
+                  class="dim-bar-fill ratio-bar"
+                  :style="{ width: trackScore.straightCurveRatio + '%' }"
+                ></div>
+              </div>
+              <span class="dim-val">{{ trackScore.straightCurveRatio }}</span>
+            </div>
+            <div class="score-dim-row">
+              <span class="dim-name">检查点均匀</span>
+              <div class="dim-bar-bg">
+                <div
+                  class="dim-bar-fill checkpoint-bar"
+                  :style="{ width: trackScore.checkpointUniformity + '%' }"
+                ></div>
+              </div>
+              <span class="dim-val">{{ trackScore.checkpointUniformity }}</span>
+            </div>
+          </div>
+          <div class="score-entered" v-if="trackScore.madeLeaderboard">
+            🎉 进入了排行榜！
+          </div>
+        </div>
+
+        <div class="leaderboard-section">
+          <button class="leaderboard-toggle" @click="leaderboardOpen = !leaderboardOpen">
+            <span>🏆 赛道排行榜 TOP 20</span>
+            <span class="toggle-arrow" :class="{ open: leaderboardOpen }">▼</span>
+          </button>
+          <div class="leaderboard-body" v-if="leaderboardOpen">
+            <div class="leaderboard-loading" v-if="leaderboardLoading">加载中...</div>
+            <table class="leaderboard-table" v-else-if="leaderboardEntries.length > 0">
+              <thead>
+                <tr>
+                  <th>排名</th>
+                  <th>赛道名</th>
+                  <th>评分</th>
+                  <th>难度</th>
+                  <th>生成时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(entry, idx) in leaderboardEntries"
+                  :key="entry.trackId"
+                  :class="{ 'highlight-row': entry.trackId === currentTrack?.id }"
+                >
+                  <td class="rank-cell">
+                    <span v-if="idx === 0" class="medal">🥇</span>
+                    <span v-else-if="idx === 1" class="medal">🥈</span>
+                    <span v-else-if="idx === 2" class="medal">🥉</span>
+                    <span v-else>{{ idx + 1 }}</span>
+                  </td>
+                  <td>{{ entry.name }}</td>
+                  <td class="score-cell">{{ entry.score }}</td>
+                  <td>{{ entry.difficulty }}</td>
+                  <td class="time-cell">{{ formatTime(entry.createdAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="leaderboard-empty" v-else>暂无记录</div>
+          </div>
         </div>
       </div>
     </div>
@@ -114,9 +198,9 @@
         <span>✨</span>
         <span>生成赛道</span>
       </button>
-      <button 
-        class="save-btn" 
-        @click="saveAndUse" 
+      <button
+        class="save-btn"
+        @click="saveAndUse"
         :disabled="!currentTrack || isGenerating"
       >
         <span>🚀</span>
@@ -127,10 +211,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import type { Track } from '../types/game';
 import { drawBezierPath, drawBezierStroke } from '../utils/bezier';
+
+interface TrackScoreData {
+  total: number;
+  curvatureRichness: number;
+  straightCurveRatio: number;
+  checkpointUniformity: number;
+  madeLeaderboard: boolean;
+}
+
+interface LeaderboardEntry {
+  trackId: string;
+  name: string;
+  score: number;
+  difficulty: number;
+  lengthFactor: number;
+  trackWidth: number;
+  seed: number;
+  createdAt: number;
+}
 
 const router = useRouter();
 
@@ -145,6 +248,11 @@ const seed = ref(Math.floor(Math.random() * 1000000));
 const currentTrack = ref<Track | null>(null);
 const isGenerating = ref(false);
 const error = ref('');
+
+const trackScore = ref<TrackScoreData | null>(null);
+const leaderboardOpen = ref(false);
+const leaderboardLoading = ref(false);
+const leaderboardEntries = ref<LeaderboardEntry[]>([]);
 
 const difficultyDescription = computed(() => {
   const descs = [
@@ -162,6 +270,24 @@ const asteroidCount = computed(() => {
   return currentTrack.value.envElements.filter(e => e.type === 'asteroid').length;
 });
 
+const scoreClass = computed(() => {
+  if (!trackScore.value) return '';
+  const s = trackScore.value.total;
+  if (s >= 80) return 'score-excellent';
+  if (s >= 60) return 'score-good';
+  if (s >= 40) return 'score-average';
+  return 'score-low';
+});
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  const hour = d.getHours().toString().padStart(2, '0');
+  const min = d.getMinutes().toString().padStart(2, '0');
+  return `${month}-${day} ${hour}:${min}`;
+}
+
 function randomizeSeed() {
   seed.value = Math.floor(Math.random() * 1000000);
 }
@@ -170,11 +296,27 @@ function goBack() {
   router.push('/');
 }
 
+async function fetchLeaderboard() {
+  leaderboardLoading.value = true;
+  try {
+    const res = await fetch('/api/tracks/leaderboard');
+    if (res.ok) {
+      const data = await res.json();
+      leaderboardEntries.value = data.entries || [];
+    }
+  } catch (e) {
+    console.error('Fetch leaderboard error:', e);
+  } finally {
+    leaderboardLoading.value = false;
+  }
+}
+
 async function generateTrack() {
   if (isGenerating.value) return;
 
   isGenerating.value = true;
   error.value = '';
+  trackScore.value = null;
 
   try {
     const res = await fetch('/api/tracks/generate', {
@@ -192,7 +334,14 @@ async function generateTrack() {
 
     if (res.ok && data.track) {
       currentTrack.value = data.track;
+      if (data.score) {
+        trackScore.value = data.score;
+      }
       render();
+
+      if (data.score?.madeLeaderboard) {
+        fetchLeaderboard();
+      }
     } else {
       error.value = data.error || '生成失败';
     }
@@ -314,22 +463,22 @@ function drawStars() {
   if (!ctx || !previewCanvas.value) return;
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  
+
   const starCount = 80;
   const seedVal = 54321;
-  
+
   for (let i = 0; i < starCount; i++) {
     const x = ((seedVal * (i + 1) * 9301 + 49297) % 233280) / 233280 * previewCanvas.value.width;
     const y = ((seedVal * (i + 1) * 49297 + 9301) % 233280) / 233280 * previewCanvas.value.height;
     const size = ((seedVal * (i + 1) * 1234) % 100) / 100 * 1.5 + 0.5;
     const alpha = ((seedVal * (i + 1) * 5678) % 100) / 100 * 0.4 + 0.2;
-    
+
     ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.arc(x, y, size, 0, Math.PI * 2);
     ctx.fill();
   }
-  
+
   ctx.globalAlpha = 1;
 }
 
@@ -343,7 +492,7 @@ function drawAsteroid(x: number, y: number, r: number) {
 
   ctx.fillStyle = gradient;
   ctx.beginPath();
-  
+
   const segments = 8;
   for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
@@ -429,13 +578,14 @@ function resizeCanvas() {
 
 onMounted(() => {
   if (!previewCanvas.value) return;
-  
+
   const c = previewCanvas.value.getContext('2d');
   if (c) ctx = c;
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
+  fetchLeaderboard();
   generateTrack();
 });
 </script>
@@ -458,7 +608,7 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-image: 
+  background-image:
     radial-gradient(2px 2px at 20px 30px, white, transparent),
     radial-gradient(2px 2px at 40px 70px, rgba(255,255,255,0.8), transparent),
     radial-gradient(1px 1px at 90px 40px, white, transparent),
@@ -653,10 +803,18 @@ onMounted(() => {
   font-weight: bold;
 }
 
+.right-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .preview-container {
   flex: 1;
   position: relative;
   overflow: hidden;
+  min-height: 0;
 }
 
 .preview-canvas {
@@ -714,6 +872,210 @@ onMounted(() => {
   color: #ff6b6b;
   font-size: 16px;
   text-align: center;
+}
+
+.score-panel {
+  padding: 12px 20px;
+  background: rgba(26, 26, 62, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.score-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.score-label {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.score-total {
+  font-size: 28px;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.score-excellent {
+  color: #2ed573;
+  text-shadow: 0 0 15px rgba(46, 213, 115, 0.6);
+}
+
+.score-good {
+  color: #4ecdc4;
+  text-shadow: 0 0 15px rgba(78, 205, 196, 0.6);
+}
+
+.score-average {
+  color: #f9ca24;
+  text-shadow: 0 0 15px rgba(249, 202, 36, 0.6);
+}
+
+.score-low {
+  color: #ff6b6b;
+  text-shadow: 0 0 15px rgba(255, 107, 107, 0.6);
+}
+
+.score-dimensions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-dim-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dim-name {
+  width: 80px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: right;
+}
+
+.dim-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.dim-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.curvature-bar {
+  background: linear-gradient(90deg, #a29bfe, #6c5ce7);
+}
+
+.ratio-bar {
+  background: linear-gradient(90deg, #45b7d1, #4ecdc4);
+}
+
+.checkpoint-bar {
+  background: linear-gradient(90deg, #f9ca24, #f0932b);
+}
+
+.dim-val {
+  width: 30px;
+  font-size: 13px;
+  font-family: monospace;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: right;
+}
+
+.score-entered {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #2ed573;
+  font-weight: bold;
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; text-shadow: 0 0 10px rgba(46, 213, 115, 0.5); }
+}
+
+.leaderboard-section {
+  background: rgba(26, 26, 62, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.leaderboard-toggle {
+  width: 100%;
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.leaderboard-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-arrow {
+  font-size: 12px;
+  transition: transform 0.3s ease;
+}
+
+.toggle-arrow.open {
+  transform: rotate(180deg);
+}
+
+.leaderboard-body {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 0 20px 12px;
+}
+
+.leaderboard-loading,
+.leaderboard-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  padding: 20px;
+  font-size: 14px;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.leaderboard-table thead th {
+  text-align: left;
+  padding: 8px 6px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: normal;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.leaderboard-table tbody td {
+  padding: 7px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.highlight-row {
+  background: rgba(78, 205, 196, 0.08);
+}
+
+.rank-cell {
+  width: 40px;
+  text-align: center;
+}
+
+.medal {
+  font-size: 14px;
+}
+
+.score-cell {
+  font-family: monospace;
+  font-weight: bold;
+  color: #f9ca24;
+}
+
+.time-cell {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
 }
 
 .action-bar {

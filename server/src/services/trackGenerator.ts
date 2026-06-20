@@ -30,6 +30,15 @@ export interface TrackGenParams {
   seed: number;
 }
 
+export interface TrackScore {
+  total: number;
+  curvatureRichness: number;
+  straightCurveRatio: number;
+  checkpointUniformity: number;
+}
+
+const CURVATURE_THRESHOLD = 1 / 200;
+
 const BASE_CIRCUMFERENCE = 3000;
 const MIN_CONTROL_POINTS = 8;
 const MAX_CONTROL_POINTS = 20;
@@ -798,4 +807,256 @@ export function generateTrack(params: TrackGenParams): Track | null {
   }
 
   return bestTrack;
+}
+
+function computeCurvatures(
+  samples: { point: Vector2; tangent: Vector2 }[]
+): number[] {
+  const n = samples.length;
+  if (n < 3) return new Array(n).fill(0);
+
+  const curvatures: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = samples[(i - 1 + n) % n];
+    const curr = samples[i];
+    const next = samples[(i + 1) % n];
+
+    const d1 = vecDistance(prev.point, curr.point);
+    const d2 = vecDistance(curr.point, next.point);
+    const arcLen = (d1 + d2) / 2;
+    if (arcLen < 1e-6) {
+      curvatures.push(0);
+      continue;
+    }
+
+    const t1 = curr.tangent;
+    const t2 = next.tangent;
+    const len1 = Math.sqrt(t1.x * t1.x + t1.y * t1.y);
+    const len2 = Math.sqrt(t2.x * t2.x + t2.y * t2.y);
+    if (len1 < 1e-6 || len2 < 1e-6) {
+      curvatures.push(0);
+      continue;
+    }
+
+    const dot = (t1.x * t2.x + t1.y * t2.y) / (len1 * len2);
+    const clampedDot = Math.max(-1, Math.min(1, dot));
+    const angleDiff = Math.acos(clampedDot);
+    curvatures.push(Math.abs(angleDiff / arcLen));
+  }
+  return curvatures;
+}
+
+function computeArcLengths(
+  samples: { point: Vector2 }[]
+): number[] {
+  const lengths: number[] = [];
+  for (let i = 0; i < samples.length; i++) {
+    const next = samples[(i + 1) % samples.length];
+    lengths.push(vecDistance(samples[i].point, next.point));
+  }
+  return lengths;
+}
+
+function scoreCurvatureRichness(curvatures: number[], arcLengths: number[]): number {
+  const isCurve = curvatures.map(c => c > CURVATURE_THRESHOLD);
+
+  let totalArcLen = 0;
+  for (const l of arcLengths) totalArcLen += l;
+
+  interface CurveSection {
+    startIdx: number;
+    endIdx: number;
+    totalCurvature: number;
+    totalWeight: number;
+  }
+
+  const sections: CurveSection[] = [];
+  let currentSection: CurveSection | null = null;
+
+  for (let i = 0; i < curvatures.length; i++) {
+    if (isCurve[i]) {
+      if (!currentSection) {
+        currentSection = { startIdx: i, endIdx: i, totalCurvature: 0, totalWeight: 0 };
+      }
+      currentSection.endIdx = i;
+      currentSection.totalCurvature += curvatures[i] * arcLengths[i];
+      currentSection.totalWeight += arcLengths[i];
+    } else {
+      if (currentSection) {
+        sections.push(currentSection);
+        currentSection = null;
+      }
+    }
+  }
+  if (currentSection) {
+    const lastSection = sections.length > 0 ? sections[sections.length - 1] : null;
+    if (lastSection && lastSection.endIdx === curvatures.length - 1 && currentSection.startIdx === 0) {
+      lastSection.endIdx = currentSection.endIdx;
+      lastSection.totalCurvature += currentSection.totalCurvature;
+      lastSection.totalWeight += currentSection.totalWeight;
+    } else {
+      sections.push(currentSection);
+    }
+  }
+
+  if (sections.length < 2) return 10;
+
+  const avgCurvatures = sections.map(s => s.totalWeight > 0 ? s.totalCurvature / s.totalWeight : 0);
+
+  let totalDiff = 0;
+  let diffCount = 0;
+  for (let i = 0; i < avgCurvatures.length; i++) {
+    const next = (i + 1) % avgCurvatures.length;
+    totalDiff += Math.abs(avgCurvatures[i] - avgCurvatures[next]);
+    diffCount++;
+  }
+
+  const avgDiff = totalDiff / diffCount;
+  const score = Math.min(100, (avgDiff / 0.004) * 100);
+  return Math.round(score * 100) / 100;
+}
+
+function scoreStraightCurveRatio(curvatures: number[], arcLengths: number[]): number {
+  const isStraight = curvatures.map(c => c <= CURVATURE_THRESHOLD);
+
+  let straightLen = 0;
+  let totalLen = 0;
+  for (let i = 0; i < arcLengths.length; i++) {
+    totalLen += arcLengths[i];
+    if (isStraight[i]) straightLen += arcLengths[i];
+  }
+
+  if (totalLen === 0) return 0;
+  const ratio = straightLen / totalLen;
+
+  if (ratio >= 0.3 && ratio <= 0.5) return 100;
+
+  if (ratio < 0.3) {
+    return Math.round((ratio / 0.3) * 100 * 100) / 100;
+  }
+
+  const excess = ratio - 0.5;
+  const score = Math.max(0, 100 - (excess / 0.5) * 100);
+  return Math.round(score * 100) / 100;
+}
+
+function scoreCheckpointUniformity(track: Track): number {
+  const checkpoints = track.checkpoints;
+  if (checkpoints.length < 2) return 50;
+
+  const outerSamples = sampleClosedBezier(track.outerBoundary.controlPoints, SAMPLE_COUNT);
+  const innerSamples = sampleClosedBezier(track.innerBoundary.controlPoints, SAMPLE_COUNT);
+
+  if (outerSamples.length < 2 || innerSamples.length < 2) return 50;
+
+  const centerline = getCenterlineSamples(
+    outerSamples,
+    innerSamples,
+    estimateTrackWidth(outerSamples, innerSamples)
+  );
+
+  if (centerline.length < 2) return 50;
+
+  const arcLens = computeArcLengths(centerline);
+  const cumulativeArc: number[] = [0];
+  for (let i = 0; i < arcLens.length; i++) {
+    cumulativeArc.push(cumulativeArc[i] + arcLens[i]);
+  }
+  const totalArcLen = cumulativeArc[cumulativeArc.length - 1];
+
+  const cpArcPositions: number[] = [];
+  for (const cp of checkpoints) {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < centerline.length; i++) {
+      const d = vecDistance(cp.position, centerline[i].point);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    cpArcPositions.push(cumulativeArc[bestIdx]);
+  }
+
+  cpArcPositions.sort((a, b) => a - b);
+
+  const distances: number[] = [];
+  for (let i = 0; i < cpArcPositions.length; i++) {
+    const next = (i + 1) % cpArcPositions.length;
+    let dist = cpArcPositions[next] - cpArcPositions[i];
+    if (next === 0) dist = totalArcLen - cpArcPositions[i] + cpArcPositions[0];
+    distances.push(dist);
+  }
+
+  if (distances.length === 0) return 50;
+
+  const mean = distances.reduce((a, b) => a + b, 0) / distances.length;
+  if (mean === 0) return 50;
+
+  const variance = distances.reduce((sum, d) => sum + (d - mean) ** 2, 0) / distances.length;
+  const stdDev = Math.sqrt(variance);
+  const cv = stdDev / mean;
+
+  const score = Math.max(0, 100 - cv * 200);
+  return Math.round(score * 100) / 100;
+}
+
+function estimateTrackWidth(
+  outerSamples: { point: Vector2 }[],
+  innerSamples: { point: Vector2 }[]
+): number {
+  if (outerSamples.length === 0 || innerSamples.length === 0) return 120;
+
+  let totalDist = 0;
+  const sampleCount = Math.min(20, outerSamples.length);
+  const step = Math.max(1, Math.floor(outerSamples.length / sampleCount));
+
+  let count = 0;
+  for (let i = 0; i < outerSamples.length; i += step) {
+    let minDist = Infinity;
+    for (let j = 0; j < innerSamples.length; j++) {
+      const d = vecDistance(outerSamples[i].point, innerSamples[j].point);
+      if (d < minDist) minDist = d;
+    }
+    totalDist += minDist;
+    count++;
+  }
+
+  return count > 0 ? totalDist / count : 120;
+}
+
+export function calculateTrackScore(track: Track): TrackScore {
+  const outerSamples = sampleClosedBezier(track.outerBoundary.controlPoints, SAMPLE_COUNT);
+  const innerSamples = sampleClosedBezier(track.innerBoundary.controlPoints, SAMPLE_COUNT);
+
+  if (outerSamples.length < 3) {
+    return { total: 0, curvatureRichness: 0, straightCurveRatio: 0, checkpointUniformity: 0 };
+  }
+
+  const tw = estimateTrackWidth(outerSamples, innerSamples);
+  const centerline = getCenterlineSamples(outerSamples, innerSamples, tw);
+
+  if (centerline.length < 3) {
+    return { total: 0, curvatureRichness: 0, straightCurveRatio: 0, checkpointUniformity: 0 };
+  }
+
+  const curvatures = computeCurvatures(centerline);
+  const arcLengths = computeArcLengths(centerline);
+
+  const curvatureRichness = scoreCurvatureRichness(curvatures, arcLengths);
+  const straightCurveRatio = scoreStraightCurveRatio(curvatures, arcLengths);
+  const checkpointUniformity = scoreCheckpointUniformity(track);
+
+  const total = Math.round(
+    curvatureRichness * 0.4 +
+    straightCurveRatio * 0.3 +
+    checkpointUniformity * 0.3
+  );
+
+  return {
+    total,
+    curvatureRichness: Math.round(curvatureRichness),
+    straightCurveRatio: Math.round(straightCurveRatio),
+    checkpointUniformity: Math.round(checkpointUniformity)
+  };
 }

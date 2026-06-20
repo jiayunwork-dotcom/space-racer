@@ -149,6 +149,60 @@ export async function getGlobalLeaderboard(limit: number = 20): Promise<GlobalLe
   return results;
 }
 
+export interface TrackLeaderboardEntry {
+  trackId: string;
+  name: string;
+  score: number;
+  difficulty: number;
+  lengthFactor: number;
+  trackWidth: number;
+  seed: number;
+  createdAt: number;
+}
+
+const LEADERBOARD_KEY = 'track:leaderboard';
+const LEADERBOARD_META_KEY = 'track:leaderboard:meta';
+const LEADERBOARD_MAX_SIZE = 20;
+
+export async function addTrackToLeaderboard(entry: TrackLeaderboardEntry): Promise<boolean> {
+  const r = getRedis();
+  const currentCount = await r.zcard(LEADERBOARD_KEY);
+  const minEntry = currentCount > 0 ? await r.zrange(LEADERBOARD_KEY, 0, 0, 'WITHSCORES') : [];
+
+  if (currentCount >= LEADERBOARD_MAX_SIZE) {
+    const minScore = minEntry.length >= 2 ? parseFloat(minEntry[1]) : 0;
+    if (entry.score <= minScore) return false;
+  }
+
+  await r.zadd(LEADERBOARD_KEY, entry.score, entry.trackId);
+  await r.hset(LEADERBOARD_META_KEY, entry.trackId, JSON.stringify(entry));
+
+  if (currentCount >= LEADERBOARD_MAX_SIZE) {
+    const toRemove = await r.zrange(LEADERBOARD_KEY, 0, 0);
+    for (const id of toRemove) {
+      await r.zrem(LEADERBOARD_KEY, id);
+      await r.hdel(LEADERBOARD_META_KEY, id);
+    }
+  }
+
+  return true;
+}
+
+export async function getTrackLeaderboard(): Promise<TrackLeaderboardEntry[]> {
+  const r = getRedis();
+  const ids = await r.zrevrange(LEADERBOARD_KEY, 0, LEADERBOARD_MAX_SIZE - 1);
+
+  const entries: TrackLeaderboardEntry[] = [];
+  for (const id of ids) {
+    const data = await r.hget(LEADERBOARD_META_KEY, id);
+    if (data) {
+      entries.push(JSON.parse(data) as TrackLeaderboardEntry);
+    }
+  }
+
+  return entries;
+}
+
 export async function saveRoomState(roomId: string, state: string): Promise<void> {
   const r = getRedis();
   await r.setex(`room:${roomId}`, 3600, state);
