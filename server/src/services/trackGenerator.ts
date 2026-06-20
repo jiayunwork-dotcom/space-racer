@@ -34,11 +34,12 @@ const BASE_CIRCUMFERENCE = 3000;
 const MIN_CONTROL_POINTS = 8;
 const MAX_CONTROL_POINTS = 20;
 const SAMPLE_COUNT = 200;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 10;
 
-function getCurvatureRadiusRange(difficulty: number): { min: number; max: number } {
+function getCurvatureRadiusRange(difficulty: number, trackWidth: number): { min: number; max: number } {
   const maxRadius = 200 + (5 - difficulty) * 35;
-  const minRadius = 60 + (5 - difficulty) * 35;
+  const baseMin = 60 + (5 - difficulty) * 35;
+  const minRadius = Math.max(trackWidth * 1.5, baseMin);
   return { min: minRadius, max: maxRadius };
 }
 
@@ -65,15 +66,28 @@ function generateOuterControlPoints(
   const { difficulty, lengthFactor } = params;
   const cpCount = getControlPointCount(lengthFactor);
   const baseRadius = (BASE_CIRCUMFERENCE * lengthFactor) / (2 * Math.PI);
-  const { min: minRadius } = getCurvatureRadiusRange(difficulty);
+  const { min: minRadius } = getCurvatureRadiusRange(difficulty, params.trackWidth);
   const maxOffset = Math.min(baseRadius * 0.4, baseRadius - minRadius);
 
   const points: Vector2[] = [];
+  const rawWobbles: number[] = [];
+
+  for (let i = 0; i < cpCount; i++) {
+    const wobbleAmount = rng.range(-maxOffset, maxOffset) * (difficulty / 5);
+    rawWobbles.push(wobbleAmount);
+  }
+
+  const smoothedWobbles: number[] = [];
+  for (let i = 0; i < cpCount; i++) {
+    const prev = rawWobbles[(i - 1 + cpCount) % cpCount];
+    const curr = rawWobbles[i];
+    const next = rawWobbles[(i + 1) % cpCount];
+    smoothedWobbles.push(prev * 0.25 + curr * 0.5 + next * 0.25);
+  }
 
   for (let i = 0; i < cpCount; i++) {
     const angle = (i / cpCount) * Math.PI * 2 - Math.PI / 2;
-    const wobbleAmount = rng.range(-maxOffset, maxOffset) * (difficulty / 5);
-    const r = baseRadius + wobbleAmount;
+    const r = baseRadius + smoothedWobbles[i];
 
     points.push(vec2(
       center.x + Math.cos(angle) * r,
@@ -116,13 +130,13 @@ function calculateControlPoint(p0: Vector2, p1: Vector2, p2: Vector2, isStart: b
 
   if (isStart) {
     return vec2(
-      p1.x - dx * scale * 0.5,
-      p1.y - dy * scale * 0.5
+      p1.x + dx * scale * 0.5,
+      p1.y + dy * scale * 0.5
     );
   } else {
     return vec2(
-      p1.x + dx * scale * 0.5,
-      p1.y + dy * scale * 0.5
+      p1.x - dx * scale * 0.5,
+      p1.y - dy * scale * 0.5
     );
   }
 }
@@ -201,6 +215,7 @@ function sampleClosedBezier(controlPoints: Vector2[], segments: number): { point
 }
 
 function closedCurveLength(samples: { point: Vector2 }[]): number {
+  if (samples.length === 0) return 0;
   let length = 0;
   for (let i = 0; i < samples.length - 1; i++) {
     length += vecDistance(samples[i].point, samples[i + 1].point);
@@ -229,20 +244,49 @@ function generateInnerBoundaryFromOuter(
   trackWidth: number
 ): Vector2[] {
   const samples = sampleClosedBezier(outerControlPoints, SAMPLE_COUNT);
-  const innerKnots: Vector2[] = [];
+  if (samples.length === 0) return [];
 
-  const n = outerControlPoints.length;
-  const curveCount = (n - 1) / 3;
-
-  for (let i = 0; i < curveCount; i++) {
-    const t = (i + 0.5) / curveCount;
-    const sampleIdx = Math.floor(t * samples.length) % samples.length;
-    const sample = samples[sampleIdx];
-    const inwardNormal = vec2(-sample.normal.x, -sample.normal.y);
-    innerKnots.push(vecAdd(sample.point, vecMul(inwardNormal, trackWidth / 2)));
+  const offsetPoints: { point: Vector2; tangent: Vector2 }[] = [];
+  for (const s of samples) {
+    const inward = vec2(-s.normal.x, -s.normal.y);
+    offsetPoints.push({
+      point: vecAdd(s.point, vecMul(inward, trackWidth)),
+      tangent: s.tangent
+    });
   }
 
-  return createBezierControlPoints(innerKnots);
+  const n = offsetPoints.length;
+  const segmentCount = Math.max(12, Math.floor(n / 5));
+  const step = Math.max(1, Math.floor(n / segmentCount));
+
+  const controlPoints: Vector2[] = [];
+
+  for (let i = 0; i < segmentCount; i++) {
+    const currIdx = (i * step) % n;
+    const nextIdx = ((i + 1) * step) % n;
+    const curr = offsetPoints[currIdx];
+    const next = offsetPoints[nextIdx];
+
+    const d = vecDistance(curr.point, next.point);
+    const tangentLen = d / 3;
+
+    const currTangent = vecNormalize(curr.tangent);
+    const nextTangent = vecNormalize(next.tangent);
+    const currTLen = vecLength(curr.tangent);
+    const nextTLen = vecLength(next.tangent);
+
+    const cp1 = vecAdd(curr.point, vecMul(currTLen > 0 ? currTangent : vec2(1, 0), tangentLen));
+    const cp2 = vecSub(next.point, vecMul(nextTLen > 0 ? nextTangent : vec2(1, 0), tangentLen));
+
+    if (i === 0) controlPoints.push(curr.point);
+    controlPoints.push(cp1);
+    controlPoints.push(cp2);
+    controlPoints.push(next.point);
+  }
+
+  if (controlPoints.length < 4) return [];
+
+  return controlPoints;
 }
 
 function validateTrack(
@@ -254,8 +298,8 @@ function validateTrack(
   const outerSamples = sampleClosedBezier(outerControlPoints, SAMPLE_COUNT);
   const innerSamples = sampleClosedBezier(innerControlPoints, SAMPLE_COUNT);
 
-  const minWidth = trackWidth * 0.9;
-  const maxWidth = trackWidth * 1.1;
+  const minWidth = trackWidth * 0.75;
+  const maxWidth = trackWidth * 1.35;
 
   for (let i = 0; i < outerSamples.length; i++) {
     const outerPt = outerSamples[i].point;
@@ -286,16 +330,20 @@ function validateTrack(
     }
   }
 
-  if (checkSelfIntersection(outerSamples)) {
+  const outerSelfIntersects = checkSelfIntersection(outerSamples);
+  const innerSelfIntersects = checkSelfIntersection(innerSamples);
+  const boundariesIntersect = checkBoundaryIntersection(outerSamples, innerSamples);
+
+  if (outerSelfIntersects) {
     issues.push('Outer boundary self-intersects');
   }
 
-  if (checkSelfIntersection(innerSamples)) {
-    issues.push('Inner boundary self-intersects');
+  if (boundariesIntersect) {
+    issues.push('Inner and outer boundaries intersect');
   }
 
-  if (checkBoundaryIntersection(outerSamples, innerSamples)) {
-    issues.push('Inner and outer boundaries intersect');
+  if (innerSelfIntersects && boundariesIntersect) {
+    issues.push('Inner boundary self-intersects and crosses outer boundary');
   }
 
   return { valid: issues.length === 0, issues };
@@ -675,6 +723,10 @@ export function generateTrack(params: TrackGenParams): Track | null {
 
       const innerControlPoints = generateInnerBoundaryFromOuter(outerControlPoints, trackWidth);
 
+      if (innerControlPoints.length === 0) {
+        continue;
+      }
+
       const validation = validateTrack(outerControlPoints, innerControlPoints, trackWidth);
 
       if (!validation.valid) {
@@ -710,6 +762,7 @@ export function generateTrack(params: TrackGenParams): Track | null {
       const seedSuffix = seedStr.slice(-4);
       const trackName = `随机赛道-${seedSuffix}`;
 
+      if (checkpoints.length === 0) continue;
       const startCheckpoint = checkpoints[0];
 
       const track: Track = {

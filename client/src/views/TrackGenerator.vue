@@ -604,8 +604,7 @@ onMounted(() => {
 }
 
 .seed-input {
-  flex: 1;
-  min-width: 140px;
+  width: 100%;
   padding: 8px 12px;
   font-size: 14px;
   color: #fff;
@@ -615,6 +614,14 @@ onMounted(() => {
   outline: none;
   font-family: monospace;
   letter-spacing: 1px;
+  -moz-appearance: textfield;
+  box-sizing: border-box;
+}
+
+.seed-input::-webkit-inner-spin-button,
+.seed-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .seed-input:focus {
@@ -744,11 +751,12 @@ onMounted(() => {
 }
 
 .generate-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
-  background: linear-gradient(135deg, #555, #666);
+  background: #333;
   box-shadow: none;
   transform: none;
+  color: rgba(255, 255, 255, 0.35);
 }
 
 .generate-btn:disabled:hover {
@@ -768,11 +776,12 @@ onMounted(() => {
 }
 
 .save-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
-  background: linear-gradient(135deg, #555, #666);
+  background: #333;
   box-shadow: none;
   transform: none;
+  color: rgba(255, 255, 255, 0.35);
 }
 
 .save-btn:disabled:hover {
