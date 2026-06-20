@@ -185,6 +185,7 @@ export interface GameStateData {
   mines: Mine[];
   envElements: EnvElement[];
   itemSpawners: ItemSpawner[];
+  spectatorCount?: number;
 }
 
 export interface LeaderboardEntry {

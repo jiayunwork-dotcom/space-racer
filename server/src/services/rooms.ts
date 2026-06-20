@@ -19,6 +19,11 @@ import {
 } from '../game/replayRecorder';
 import { vecLength } from '../utils/vector';
 
+interface SpectatorInfo {
+  spectatorId: string;
+  lastDanmakuTime: number;
+}
+
 interface RoomState {
   room: Room;
   engine: GameEngineState | null;
@@ -31,6 +36,7 @@ interface RoomState {
   lastRaceReplayId: string | null;
   tournamentId: string | null;
   tournamentStageIndex: number | null;
+  spectators: Map<string, SpectatorInfo>;
 }
 
 const rooms = new Map<string, RoomState>();
@@ -101,7 +107,8 @@ export function createRoom(
     replayRecorder: null,
     lastRaceReplayId: null,
     tournamentId: tournamentInfo?.tournamentId || null,
-    tournamentStageIndex: tournamentInfo?.stageIndex || null
+    tournamentStageIndex: tournamentInfo?.stageIndex || null,
+    spectators: new Map()
   });
 
   return room;
@@ -589,7 +596,8 @@ export function getGameStateForPlayer(roomId: string, playerId: string): any {
       id: s.id,
       position: s.position,
       currentItem: s.currentItem
-    }))
+    })),
+    spectatorCount: state.spectators.size
   };
 }
 
@@ -652,3 +660,102 @@ export function cleanupDisconnectedPlayers(): void {
 }
 
 setInterval(cleanupDisconnectedPlayers, 1000);
+
+export function addSpectator(roomId: string, spectatorId: string): boolean {
+  const state = rooms.get(roomId);
+  if (!state) return false;
+  state.spectators.set(spectatorId, { spectatorId, lastDanmakuTime: 0 });
+  return true;
+}
+
+export function removeSpectator(roomId: string, spectatorId: string): void {
+  const state = rooms.get(roomId);
+  if (!state) return;
+  state.spectators.delete(spectatorId);
+}
+
+export function getSpectatorCount(roomId: string): number {
+  const state = rooms.get(roomId);
+  if (!state) return 0;
+  return state.spectators.size;
+}
+
+export function checkDanmakuCooldown(roomId: string, spectatorId: string): boolean {
+  const state = rooms.get(roomId);
+  if (!state) return false;
+  const info = state.spectators.get(spectatorId);
+  if (!info) return false;
+  const now = Date.now();
+  if (now - info.lastDanmakuTime < 10000) return false;
+  info.lastDanmakuTime = now;
+  return true;
+}
+
+export function getGameStateForSpectator(roomId: string): any {
+  const state = rooms.get(roomId);
+  if (!state) return null;
+  const { room } = state;
+  return {
+    room: {
+      id: room.id,
+      name: room.name,
+      trackId: room.trackId,
+      totalLaps: room.totalLaps,
+      maxPlayers: room.maxPlayers,
+      gameState: room.gameState,
+      countdownEndTime: room.countdownEndTime,
+      raceStartTime: room.raceStartTime
+    },
+    players: room.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      isReady: p.isReady,
+      isHost: p.isHost,
+      disconnected: p.disconnected
+    })),
+    ships: room.ships.map(s => ({
+      id: s.id,
+      playerId: s.playerId,
+      playerName: s.playerName,
+      position: s.position,
+      velocity: s.velocity,
+      angle: s.angle,
+      angularVelocity: s.angularVelocity,
+      shield: s.shield,
+      maxShield: s.maxShield,
+      engineType: s.engineType,
+      colorIndex: s.colorIndex,
+      currentCheckpoint: s.currentCheckpoint,
+      lap: s.lap,
+      lapStartTime: s.lapStartTime,
+      bestLapTime: s.bestLapTime,
+      finished: s.finished,
+      finishTime: s.finishTime,
+      finishPosition: s.finishPosition,
+      item: s.item,
+      boostEndTime: s.boostEndTime,
+      stunnedUntil: s.stunnedUntil,
+      slowdownUntil: s.slowdownUntil,
+      isRespawning: s.isRespawning,
+      itemUses: s.itemUses
+    })),
+    projectiles: room.projectiles.map(p => ({
+      id: p.id,
+      type: p.type,
+      position: p.position,
+      velocity: p.velocity,
+      ownerId: p.ownerId
+    })),
+    mines: room.mines.map(m => ({
+      id: m.id,
+      position: m.position
+    })),
+    envElements: room.envElements,
+    itemSpawners: room.itemSpawners.map(s => ({
+      id: s.id,
+      position: s.position,
+      currentItem: s.currentItem
+    })),
+    spectatorCount: state.spectators.size
+  };
+}

@@ -158,6 +158,13 @@
       </button>
     </div>
 
+    <div v-if="showSpectateButton" class="bottom-action">
+      <button class="spectate-btn" @click="enterSpectate">
+        <span class="btn-icon">👁</span>
+        观战当前站 - 第 {{ currentStageIndex + 1 }} 站: {{ currentStage?.trackName }}
+      </button>
+    </div>
+
     <div v-if="showFinalStandings" class="final-modal-overlay">
       <div class="final-modal">
         <div class="final-header">
@@ -266,6 +273,12 @@ const showEnterRaceButton = computed(() => {
   if (!isOngoing.value || !currentStage.value) return false;
   return (currentStage.value.status === 'preparing' && countdownRemaining.value > 0) ||
          currentStage.value.status === 'racing';
+});
+
+const showSpectateButton = computed(() => {
+  if (!isOngoing.value || !currentStage.value) return false;
+  if (isJoined.value) return false;
+  return currentStage.value.status === 'preparing' || currentStage.value.status === 'racing';
 });
 
 watch(isFinished, (finished) => {
@@ -415,6 +428,17 @@ function enterRace() {
     localStorage.setItem('tournamentId', tournamentId.value);
     localStorage.setItem('currentStageIndex', currentStageIndex.value.toString());
     router.push(`/room/${roomId}`);
+  }
+}
+
+function enterSpectate() {
+  const roomId = currentStage.value?.roomId;
+  if (roomId) {
+    localStorage.setItem('tournamentContext', JSON.stringify({
+      tournamentId: tournamentId.value,
+      stageIndex: currentStageIndex.value
+    }));
+    router.push(`/spectate/${roomId}`);
   }
 }
 
@@ -948,6 +972,27 @@ function goBack() {
 .enter-race-btn:hover, .prepare-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 30px rgba(245, 87, 108, 0.6);
+}
+
+.spectate-btn {
+  padding: 16px 80px;
+  font-size: 18px;
+  font-weight: bold;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spectate-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 30px rgba(102, 126, 234, 0.6);
 }
 
 .prepare-btn {

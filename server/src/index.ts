@@ -2,7 +2,7 @@ import fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack, getRaceReplay, getRaceReplaysForRoom, getLatestRaceReplayForRoom } from './services/redis';
-import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer, getLastRaceReplayId } from './services/rooms';
+import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer, getLastRaceReplayId, addSpectator, removeSpectator, getGameStateForSpectator, checkDanmakuCooldown, getSpectatorCount } from './services/rooms';
 import {
   createTournament,
   listTournaments,
@@ -21,6 +21,9 @@ import { v4 as uuidv4 } from 'uuid';
 const PORT = parseInt(process.env.PORT || '3000');
 
 const app = fastify({ logger: true });
+
+const rooms_spectatorConnections = new Map<string, Map<string, any>>();
+const rooms_gameConnections = new Map<string, Map<string, any>>();
 
 app.register(cors, {
   origin: true,
@@ -365,6 +368,11 @@ app.register(async (fastify) => {
 
     reconnectPlayer(roomId, playerId);
 
+    if (!rooms_gameConnections.has(roomId)) {
+      rooms_gameConnections.set(roomId, new Map());
+    }
+    rooms_gameConnections.get(roomId)!.set(playerId, connection.socket);
+
     const stateInterval = setInterval(() => {
       const state = getGameStateForPlayer(roomId, playerId);
       if (state) {
@@ -399,13 +407,116 @@ app.register(async (fastify) => {
     connection.socket.on('close', () => {
       clearInterval(stateInterval);
       disconnectPlayer(roomId, playerId);
+      const conns = rooms_gameConnections.get(roomId);
+      if (conns) conns.delete(playerId);
     });
 
     connection.socket.on('error', (error) => {
       console.error('WebSocket error:', error);
       clearInterval(stateInterval);
       disconnectPlayer(roomId, playerId);
+      const conns = rooms_gameConnections.get(roomId);
+      if (conns) conns.delete(playerId);
     });
+  });
+
+  fastify.get('/ws/spectate/:roomId/:spectatorId', { websocket: true }, (connection, request) => {
+    const { roomId, spectatorId } = request.params as { roomId: string; spectatorId: string };
+
+    const room = getRoom(roomId);
+    if (!room || room.gameState === 'finished') {
+      connection.socket.send(JSON.stringify({
+        type: 'race_ended',
+        message: '比赛已结束'
+      }));
+      setTimeout(() => connection.socket.close(), 100);
+      return;
+    }
+
+    addSpectator(roomId, spectatorId);
+
+    const stateInterval = setInterval(() => {
+      const currentRoom = getRoom(roomId);
+      if (!currentRoom || currentRoom.gameState === 'finished') {
+        connection.socket.send(JSON.stringify({
+          type: 'race_ended',
+          message: '比赛已结束'
+        }));
+        clearInterval(stateInterval);
+        removeSpectator(roomId, spectatorId);
+        setTimeout(() => connection.socket.close(), 100);
+        return;
+      }
+
+      const state = getGameStateForSpectator(roomId);
+      if (state) {
+        connection.socket.send(JSON.stringify({
+          type: 'state',
+          data: state,
+          timestamp: Date.now()
+        }));
+      }
+    }, 1000 / 30);
+
+    connection.socket.on('message', (message) => {
+      try {
+        const data = JSON.parse(message.toString());
+
+        if (data.type === 'danmaku') {
+          const text = (data.text || '').trim().slice(0, 40);
+          if (!text) return;
+          if (!checkDanmakuCooldown(roomId, spectatorId)) return;
+
+          const danmakuMsg = JSON.stringify({
+            type: 'danmaku',
+            spectatorId,
+            playerName: data.playerName || '观战者',
+            text,
+            timestamp: Date.now()
+          });
+
+          const spectatorState = rooms_spectatorConnections.get(roomId);
+          if (spectatorState) {
+            for (const [id, conn] of spectatorState) {
+              if (conn.readyState === 1) {
+                conn.send(danmakuMsg);
+              }
+            }
+          }
+
+          const gameConnections = rooms_gameConnections.get(roomId);
+          if (gameConnections) {
+            for (const [id, conn] of gameConnections) {
+              if (conn.readyState === 1) {
+                conn.send(danmakuMsg);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Spectator WebSocket message error:', error);
+      }
+    });
+
+    connection.socket.on('close', () => {
+      clearInterval(stateInterval);
+      removeSpectator(roomId, spectatorId);
+      const conns = rooms_spectatorConnections.get(roomId);
+      if (conns) conns.delete(spectatorId);
+    });
+
+    connection.socket.on('error', (error) => {
+      console.error('Spectator WebSocket error:', error);
+      clearInterval(stateInterval);
+      removeSpectator(roomId, spectatorId);
+      const conns = rooms_spectatorConnections.get(roomId);
+      if (conns) conns.delete(spectatorId);
+    });
+
+    if (!rooms_spectatorConnections.has(roomId)) {
+      rooms_spectatorConnections.set(roomId, new Map());
+    }
+    rooms_spectatorConnections.get(roomId)!.set(spectatorId, connection.socket);
   });
 });
 
