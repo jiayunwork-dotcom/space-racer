@@ -268,6 +268,9 @@ const start = async () => {
     await initRedis();
     await app.listen({ port: PORT, host: '0.0.0.0' });
     console.log(`Space Racer server running on port ${PORT}`);
+    
+    console.log('=== Registered Routes Tree ===');
+    console.log(app.printRoutes());
   } catch (err) {
     app.log.error(err);
     process.exit(1);

@@ -463,41 +463,45 @@ function initCharts() {
     return;
   }
 
-  if (speedChart) speedChart.dispose();
-  if (shieldChart) shieldChart.dispose();
-  if (lapChart) lapChart.dispose();
+  console.log('[ReplayView] initCharts starting, activeStatsTab=', activeStatsTab.value, 'statsCollapsed=', statsCollapsed.value);
 
-  console.log('[ReplayView] initCharts refs:', {
-    speed: !!speedChartRef.value,
-    speedRect: speedChartRef.value?.getBoundingClientRect(),
-    shield: !!shieldChartRef.value,
-    shieldRect: shieldChartRef.value?.getBoundingClientRect(),
-    lap: !!lapChartRef.value,
-    lapRect: lapChartRef.value?.getBoundingClientRect()
-  });
+  if (speedChart) { speedChart.dispose(); speedChart = null; }
+  if (shieldChart) { shieldChart.dispose(); shieldChart = null; }
+  if (lapChart) { lapChart.dispose(); lapChart = null; }
 
+  console.log('[ReplayView] initCharts refs size info:');
   if (speedChartRef.value) {
+    console.log('  speedChartRef:', speedChartRef.value.clientWidth, 'x', speedChartRef.value.clientHeight,
+      'offset=', speedChartRef.value.offsetWidth, 'x', speedChartRef.value.offsetHeight,
+      'display=', getComputedStyle(speedChartRef.value).display);
+  } else {
+    console.log('  speedChartRef: NULL');
+  }
+  if (shieldChartRef.value) {
+    console.log('  shieldChartRef:', shieldChartRef.value.clientWidth, 'x', shieldChartRef.value.clientHeight);
+  } else {
+    console.log('  shieldChartRef: NULL');
+  }
+  if (lapChartRef.value) {
+    console.log('  lapChartRef:', lapChartRef.value.clientWidth, 'x', lapChartRef.value.clientHeight);
+  } else {
+    console.log('  lapChartRef: NULL');
+  }
+
+  if (activeStatsTab.value === '速度' && speedChartRef.value && speedChartRef.value.clientWidth > 0) {
     speedChart = echarts.init(speedChartRef.value);
     speedChart.setOption(getSpeedChartOption());
-    console.log('[ReplayView] speed chart initialized');
-  } else {
-    console.warn('[ReplayView] speedChartRef not available');
+    console.log('[ReplayView] speed chart initialized in initCharts');
   }
-
-  if (shieldChartRef.value) {
+  if (activeStatsTab.value === '护盾' && shieldChartRef.value && shieldChartRef.value.clientWidth > 0) {
     shieldChart = echarts.init(shieldChartRef.value);
     shieldChart.setOption(getShieldChartOption());
-    console.log('[ReplayView] shield chart initialized');
-  } else {
-    console.warn('[ReplayView] shieldChartRef not available');
+    console.log('[ReplayView] shield chart initialized in initCharts');
   }
-
-  if (lapChartRef.value) {
+  if (activeStatsTab.value === '圈速' && lapChartRef.value && lapChartRef.value.clientWidth > 0) {
     lapChart = echarts.init(lapChartRef.value);
     lapChart.setOption(getLapChartOption());
-    console.log('[ReplayView] lap chart initialized');
-  } else {
-    console.warn('[ReplayView] lapChartRef not available');
+    console.log('[ReplayView] lap chart initialized in initCharts');
   }
 }
 
@@ -784,34 +788,64 @@ watch(activeStatsTab, () => {
   console.log('[ReplayView] activeStatsTab changed to:', activeStatsTab.value);
   nextTick(() => {
     setTimeout(() => {
-      if (activeStatsTab.value === '速度' && speedChartRef.value && !speedChart) {
-        speedChart = echarts.init(speedChartRef.value);
-        speedChart.setOption(getSpeedChartOption());
-        console.log('[ReplayView] speed chart lazy initialized');
+      if (activeStatsTab.value === '速度') {
+        if (speedChartRef.value) {
+          if (!speedChart || speedChartRef.value !== (speedChart as any).getDom()) {
+            if (speedChart) {
+              speedChart.dispose();
+              speedChart = null;
+            }
+            console.log('[ReplayView] speed chart (re)initializing, el size:', speedChartRef.value.clientWidth, speedChartRef.value.clientHeight);
+            speedChart = echarts.init(speedChartRef.value);
+            speedChart.setOption(getSpeedChartOption());
+            console.log('[ReplayView] speed chart initialized OK');
+          } else {
+            speedChart.resize();
+          }
+        } else {
+          console.warn('[ReplayView] speedChartRef empty, cannot init');
+        }
       }
-      if (activeStatsTab.value === '速度' && speedChart) {
-        speedChart.resize();
+      if (activeStatsTab.value === '护盾') {
+        if (shieldChartRef.value) {
+          if (!shieldChart || shieldChartRef.value !== (shieldChart as any).getDom()) {
+            if (shieldChart) {
+              shieldChart.dispose();
+              shieldChart = null;
+            }
+            console.log('[ReplayView] shield chart (re)initializing, el size:', shieldChartRef.value.clientWidth, shieldChartRef.value.clientHeight);
+            shieldChart = echarts.init(shieldChartRef.value);
+            shieldChart.setOption(getShieldChartOption());
+            console.log('[ReplayView] shield chart initialized OK');
+          } else {
+            shieldChart.resize();
+          }
+        } else {
+          console.warn('[ReplayView] shieldChartRef empty, cannot init');
+        }
       }
-      if (activeStatsTab.value === '护盾' && shieldChartRef.value && !shieldChart) {
-        shieldChart = echarts.init(shieldChartRef.value);
-        shieldChart.setOption(getShieldChartOption());
-        console.log('[ReplayView] shield chart lazy initialized');
-      }
-      if (activeStatsTab.value === '护盾' && shieldChart) {
-        shieldChart.resize();
-      }
-      if (activeStatsTab.value === '圈速' && lapChartRef.value && !lapChart) {
-        lapChart = echarts.init(lapChartRef.value);
-        lapChart.setOption(getLapChartOption());
-        console.log('[ReplayView] lap chart lazy initialized');
-      }
-      if (activeStatsTab.value === '圈速' && lapChart) {
-        lapChart.resize();
+      if (activeStatsTab.value === '圈速') {
+        if (lapChartRef.value) {
+          if (!lapChart || lapChartRef.value !== (lapChart as any).getDom()) {
+            if (lapChart) {
+              lapChart.dispose();
+              lapChart = null;
+            }
+            console.log('[ReplayView] lap chart (re)initializing, el size:', lapChartRef.value.clientWidth, lapChartRef.value.clientHeight);
+            lapChart = echarts.init(lapChartRef.value);
+            lapChart.setOption(getLapChartOption());
+            console.log('[ReplayView] lap chart initialized OK');
+          } else {
+            lapChart.resize();
+          }
+        } else {
+          console.warn('[ReplayView] lapChartRef empty, cannot init');
+        }
       }
       if (activeStatsTab.value === '碰撞') {
         drawCollisionHeatmap();
       }
-    }, 50);
+    }, 80);
   });
 });
 
