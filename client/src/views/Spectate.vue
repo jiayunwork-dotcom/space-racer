@@ -11,7 +11,7 @@
         <span class="laps-info">剩余圈数: {{ remainingLaps }}</span>
       </div>
       <div class="top-right">
-        <span class="spectator-count">👁 {{ spectatorCount }} 人观战</span>
+        <span class="spectator-count">👁 {{ displaySpectatorCount }} 人观战</span>
       </div>
     </div>
 
@@ -60,10 +60,15 @@
       />
       <button
         class="danmaku-send-btn"
+        :class="{ 'cooldown-mode': !canSendDanmaku }"
         @click="sendDanmaku"
         :disabled="!canSendDanmaku || !danmakuText.trim()"
       >
-        {{ canSendDanmaku ? '发送' : `${Math.ceil(cooldownRemaining / 1000)}s` }}
+        <template v-if="canSendDanmaku">发送</template>
+        <template v-else>
+          <span class="cooldown-icon">⏳</span>
+          <span>冷却中 {{ Math.ceil(cooldownRemaining / 1000) }}s</span>
+        </template>
       </button>
     </div>
 
@@ -95,7 +100,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { GameRenderer } from '../game/renderer';
 import { SpectateClient, type DanmakuMessage } from '../game/spectateClient';
@@ -119,6 +124,8 @@ const raceStartTime = ref(0);
 const totalLaps = ref(3);
 const gameState = ref<'waiting' | 'countdown' | 'racing' | 'finished'>('waiting');
 const spectatorCount = ref(0);
+const displaySpectatorCount = ref(0);
+let spectatorSmoothTimer: number | null = null;
 const followShipId = ref<string | null>(null);
 const raceEnded = ref(false);
 
@@ -160,6 +167,30 @@ const remainingLaps = computed(() => {
   return Math.max(0, totalLaps.value - leader.lap);
 });
 
+let pendingSpectatorCount: number | null = null;
+let spectatorDebounceTimer: number | null = null;
+
+watch(spectatorCount, (newVal) => {
+  if (newVal > displaySpectatorCount.value) {
+    displaySpectatorCount.value = newVal;
+    pendingSpectatorCount = null;
+    if (spectatorDebounceTimer) {
+      clearTimeout(spectatorDebounceTimer);
+      spectatorDebounceTimer = null;
+    }
+  } else if (newVal < displaySpectatorCount.value) {
+    pendingSpectatorCount = newVal;
+    if (spectatorDebounceTimer) clearTimeout(spectatorDebounceTimer);
+    spectatorDebounceTimer = window.setTimeout(() => {
+      if (pendingSpectatorCount !== null) {
+        displaySpectatorCount.value = pendingSpectatorCount;
+        pendingSpectatorCount = null;
+      }
+      spectatorDebounceTimer = null;
+    }, 2000);
+  }
+});
+
 onMounted(() => {
   const savedId = localStorage.getItem('playerId');
   const savedName = localStorage.getItem('playerName');
@@ -183,6 +214,7 @@ onUnmounted(() => {
   if (spectateClient) spectateClient.disconnect();
   if (renderer) renderer = null;
   if (cooldownTimer) clearInterval(cooldownTimer);
+  if (spectatorDebounceTimer) clearTimeout(spectatorDebounceTimer);
   window.removeEventListener('resize', handleResize);
 });
 
@@ -199,12 +231,12 @@ async function initSpectate() {
       totalLaps.value = data.room.totalLaps;
       raceStartTime.value = data.room.raceStartTime;
       gameState.value = data.room.gameState;
-      trackName.value = data.room.name || '';
 
       const trackRes = await fetch(`/api/tracks/${data.room.trackId}`);
       const trackData = await trackRes.json();
       if (trackData.track) {
         track.value = trackData.track;
+        trackName.value = trackData.track.name;
       }
     }
   } catch (e) {
@@ -546,6 +578,21 @@ function goBack() {
 .danmaku-send-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.danmaku-send-btn.cooldown-mode {
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+  opacity: 0.85;
+  cursor: not-allowed;
+  min-width: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.cooldown-icon {
+  font-size: 14px;
 }
 
 .race-ended-overlay {
