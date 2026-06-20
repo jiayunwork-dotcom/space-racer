@@ -97,34 +97,46 @@ app.get('/api/replay/:id', async (request, reply) => {
 
 app.get('/api/race-replay/:id', async (request, reply) => {
   const { id } = request.params as { id: string };
+  console.log(`[API] GET /api/race-replay/${id}`);
   const replay = await getRaceReplay(id);
   if (!replay) {
+    console.log(`[API] Race replay not found: ${id}`);
     reply.code(404);
     return { error: 'Race replay not found' };
   }
+  console.log(`[API] Race replay found: ${id} frames=${replay.frames.length} events=${replay.events.length}`);
   return { replay };
 });
 
 app.get('/api/race-replays/room/:roomId', async (request, reply) => {
   const { roomId } = request.params as { roomId: string };
+  console.log(`[API] GET /api/race-replays/room/${roomId}`);
   const replays = await getRaceReplaysForRoom(roomId);
+  console.log(`[API] Found ${replays.length} replays for room ${roomId}`);
   return { replays };
 });
 
 app.get('/api/rooms/:roomId/latest-replay', async (request, reply) => {
   const { roomId } = request.params as { roomId: string };
+  console.log(`[API] GET /api/rooms/${roomId}/latest-replay`);
+  
   const replayId = getLastRaceReplayId(roomId);
+  console.log(`[API] Memory lastReplayId for room ${roomId}: ${replayId}`);
+  
   if (replayId) {
     const replay = await getRaceReplay(replayId);
     if (replay) {
+      console.log(`[API] Returning memory replay: ${replayId}`);
       return { replayId, replay };
     }
   }
   const latestReplay = await getLatestRaceReplayForRoom(roomId);
   if (!latestReplay) {
+    console.log(`[API] No replay found for room ${roomId}`);
     reply.code(404);
     return { error: 'No replay found' };
   }
+  console.log(`[API] Returning Redis latest replay: ${latestReplay.id}`);
   return { replayId: latestReplay.id, replay: latestReplay };
 });
 

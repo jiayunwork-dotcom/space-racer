@@ -380,12 +380,12 @@ function startGameLoop(roomId: string): void {
     }
 
     if (s.room.gameState === 'finished') {
-      handleRaceFinish(roomId);
+      handleRaceFinish(roomId).catch(err => console.error('[handleRaceFinish] error:', err));
     }
   }, tickInterval);
 }
 
-function handleRaceFinish(roomId: string): void {
+async function handleRaceFinish(roomId: string): Promise<void> {
   const state = rooms.get(roomId);
   if (!state || !state.engine || !state.track) return;
 
@@ -397,13 +397,21 @@ function handleRaceFinish(roomId: string): void {
   const results = getRaceResults(state.engine);
 
   if (state.replayRecorder) {
-    const raceReplay = buildRaceReplay(
-      state.replayRecorder,
-      state.room.ships,
-      Date.now()
-    );
-    saveRaceReplay(raceReplay);
-    state.lastRaceReplayId = raceReplay.id;
+    try {
+      const raceReplay = buildRaceReplay(
+        state.replayRecorder,
+        state.room.ships,
+        Date.now()
+      );
+      console.log(`[Replay] Saving race replay id=${raceReplay.id} room=${roomId} frames=${raceReplay.frames.length} events=${raceReplay.events.length}`);
+      await saveRaceReplay(raceReplay);
+      state.lastRaceReplayId = raceReplay.id;
+      console.log(`[Replay] Saved race replay id=${raceReplay.id} successfully`);
+    } catch (err) {
+      console.error('[Replay] Failed to save race replay:', err);
+    }
+  } else {
+    console.warn(`[Replay] No replay recorder for room ${roomId}`);
   }
 
   for (let i = 0; i < results.length; i++) {

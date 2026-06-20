@@ -83,8 +83,8 @@
         </div>
         
         <div class="chart-container">
-          <div v-show="activeStatsTab === '速度'" ref="speedChartRef" class="chart"></div>
-          <div v-show="activeStatsTab === '护盾'" ref="shieldChartRef" class="chart"></div>
+          <div v-if="activeStatsTab === '速度'" ref="speedChartRef" class="chart"></div>
+          <div v-if="activeStatsTab === '护盾'" ref="shieldChartRef" class="chart"></div>
           <div v-show="activeStatsTab === '道具'" class="events-timeline">
             <div v-for="player in players" :key="player.playerId" class="event-row">
               <span class="event-player-label" :style="{ color: getPlayerColor(player.colorIndex) }">
@@ -103,8 +103,8 @@
               </div>
             </div>
           </div>
-          <div v-show="activeStatsTab === '圈速'" ref="lapChartRef" class="chart"></div>
-          <div v-show="activeStatsTab === '碰撞'" ref="collisionChart" class="chart collision-heatmap">
+          <div v-if="activeStatsTab === '圈速'" ref="lapChartRef" class="chart"></div>
+          <div v-if="activeStatsTab === '碰撞'" ref="collisionChart" class="chart collision-heatmap">
             <canvas ref="heatmapCanvas" class="heatmap-canvas"></canvas>
           </div>
         </div>
@@ -347,6 +347,17 @@ function render() {
       const targetY = followShip.position.y + 100;
       renderer.setCamera(targetX, targetY, 1);
     }
+  } else {
+    if (track.value.checkpoints.length > 0) {
+      let sumX = 0, sumY = 0;
+      for (const cp of track.value.checkpoints) {
+        sumX += cp.position.x;
+        sumY += cp.position.y;
+      }
+      const centerX = sumX / track.value.checkpoints.length;
+      const centerY = sumY / track.value.checkpoints.length;
+      renderer.setCamera(centerX, centerY, 0.6);
+    }
   }
 
   renderer.clear();
@@ -398,53 +409,95 @@ function gameLoop(timestamp: number) {
 
 async function loadReplay() {
   const replayId = route.params.replayId as string;
+  console.log('[ReplayView] loadReplay called, replayId:', replayId);
   if (!replayId) return;
 
   try {
     const res = await fetch(`/api/race-replay/${replayId}`);
+    console.log('[ReplayView] fetch race-replay status:', res.status);
+    if (!res.ok) {
+      console.error('[ReplayView] Failed to fetch replay, status:', res.status);
+      return;
+    }
     const data = await res.json();
+    console.log('[ReplayView] replay data loaded:', {
+      hasReplay: !!data.replay,
+      frames: data.replay?.frames?.length,
+      events: data.replay?.events?.length,
+      players: data.replay?.players?.length,
+      duration: data.replay?.duration
+    });
     if (data.replay) {
       replay.value = data.replay;
       duration.value = data.replay.duration;
       
       const trackRes = await fetch(`/api/tracks/${data.replay.trackId}`);
-      const trackData = await trackRes.json();
-      if (trackData.track) {
-        track.value = trackData.track;
+      console.log('[ReplayView] fetch track status:', trackRes.status);
+      if (trackRes.ok) {
+        const trackData = await trackRes.json();
+        if (trackData.track) {
+          track.value = trackData.track;
+          console.log('[ReplayView] track loaded:', trackData.track.name);
+        }
       }
 
       playerState.value = createReplayPlayer(data.replay);
+      console.log('[ReplayView] replay player created');
 
       nextTick(() => {
-        initCharts();
-        drawCollisionHeatmap();
+        setTimeout(() => {
+          console.log('[ReplayView] initializing charts after delay');
+          initCharts();
+          drawCollisionHeatmap();
+        }, 100);
       });
     }
   } catch (e) {
-    console.error('Failed to load replay:', e);
+    console.error('[ReplayView] Failed to load replay:', e);
   }
 }
 
 function initCharts() {
-  if (!replay.value) return;
+  if (!replay.value) {
+    console.warn('[ReplayView] initCharts: no replay data');
+    return;
+  }
 
   if (speedChart) speedChart.dispose();
   if (shieldChart) shieldChart.dispose();
   if (lapChart) lapChart.dispose();
 
+  console.log('[ReplayView] initCharts refs:', {
+    speed: !!speedChartRef.value,
+    speedRect: speedChartRef.value?.getBoundingClientRect(),
+    shield: !!shieldChartRef.value,
+    shieldRect: shieldChartRef.value?.getBoundingClientRect(),
+    lap: !!lapChartRef.value,
+    lapRect: lapChartRef.value?.getBoundingClientRect()
+  });
+
   if (speedChartRef.value) {
     speedChart = echarts.init(speedChartRef.value);
     speedChart.setOption(getSpeedChartOption());
+    console.log('[ReplayView] speed chart initialized');
+  } else {
+    console.warn('[ReplayView] speedChartRef not available');
   }
 
   if (shieldChartRef.value) {
     shieldChart = echarts.init(shieldChartRef.value);
     shieldChart.setOption(getShieldChartOption());
+    console.log('[ReplayView] shield chart initialized');
+  } else {
+    console.warn('[ReplayView] shieldChartRef not available');
   }
 
   if (lapChartRef.value) {
     lapChart = echarts.init(lapChartRef.value);
     lapChart.setOption(getLapChartOption());
+    console.log('[ReplayView] lap chart initialized');
+  } else {
+    console.warn('[ReplayView] lapChartRef not available');
   }
 }
 
@@ -728,23 +781,50 @@ onUnmounted(() => {
 });
 
 watch(activeStatsTab, () => {
+  console.log('[ReplayView] activeStatsTab changed to:', activeStatsTab.value);
   nextTick(() => {
-    if (speedChart) speedChart.resize();
-    if (shieldChart) shieldChart.resize();
-    if (lapChart) lapChart.resize();
-    if (activeStatsTab.value === '碰撞') {
-      drawCollisionHeatmap();
-    }
+    setTimeout(() => {
+      if (activeStatsTab.value === '速度' && speedChartRef.value && !speedChart) {
+        speedChart = echarts.init(speedChartRef.value);
+        speedChart.setOption(getSpeedChartOption());
+        console.log('[ReplayView] speed chart lazy initialized');
+      }
+      if (activeStatsTab.value === '速度' && speedChart) {
+        speedChart.resize();
+      }
+      if (activeStatsTab.value === '护盾' && shieldChartRef.value && !shieldChart) {
+        shieldChart = echarts.init(shieldChartRef.value);
+        shieldChart.setOption(getShieldChartOption());
+        console.log('[ReplayView] shield chart lazy initialized');
+      }
+      if (activeStatsTab.value === '护盾' && shieldChart) {
+        shieldChart.resize();
+      }
+      if (activeStatsTab.value === '圈速' && lapChartRef.value && !lapChart) {
+        lapChart = echarts.init(lapChartRef.value);
+        lapChart.setOption(getLapChartOption());
+        console.log('[ReplayView] lap chart lazy initialized');
+      }
+      if (activeStatsTab.value === '圈速' && lapChart) {
+        lapChart.resize();
+      }
+      if (activeStatsTab.value === '碰撞') {
+        drawCollisionHeatmap();
+      }
+    }, 50);
   });
 });
 
 watch(statsCollapsed, (collapsed) => {
+  console.log('[ReplayView] statsCollapsed changed to:', collapsed);
   if (!collapsed) {
     nextTick(() => {
-      if (speedChart) speedChart.resize();
-      if (shieldChart) shieldChart.resize();
-      if (lapChart) lapChart.resize();
-      drawCollisionHeatmap();
+      setTimeout(() => {
+        if (speedChart) speedChart.resize();
+        if (shieldChart) shieldChart.resize();
+        if (lapChart) lapChart.resize();
+        drawCollisionHeatmap();
+      }, 100);
     });
   }
 });

@@ -254,18 +254,26 @@ function backToLobby() {
 }
 
 async function viewReplay() {
+  console.log('[Game] viewReplay called for room:', roomId.value);
   try {
     const res = await fetch(`/api/rooms/${roomId.value}/latest-replay`);
+    console.log('[Game] latest-replay response status:', res.status);
     if (res.ok) {
       const data = await res.json();
+      console.log('[Game] latest-replay data:', data);
       if (data.replayId) {
+        console.log('[Game] navigating to replay:', data.replayId);
         router.push(`/replay/${data.replayId}`);
+      } else {
+        alert('回放ID不存在，请稍后重试');
       }
     } else {
+      const err = await res.json().catch(() => ({}));
+      console.error('[Game] latest-replay error:', err);
       alert('回放数据生成中，请稍候再试...');
     }
   } catch (e) {
-    console.error('Failed to get replay:', e);
+    console.error('[Game] Failed to get replay:', e);
     alert('获取回放失败，请稍后重试');
   }
 }
