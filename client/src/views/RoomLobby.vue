@@ -1,5 +1,13 @@
 <template>
   <div class="room-lobby">
+    <div v-if="isTournamentRoom" class="tournament-banner">
+      <div class="tournament-info">
+        <span class="tournament-label">🏆 锦标赛分站</span>
+        <span class="tournament-name">{{ tournamentInfo?.tournamentName }}</span>
+        <span class="stage-info">第 {{ tournamentInfo?.stageIndex !== undefined ? tournamentInfo.stageIndex + 1 : '-' }} 站</span>
+      </div>
+    </div>
+
     <div class="header">
       <button class="back-btn" @click="leaveRoom">← 离开房间</button>
       <h2>{{ room?.name || '房间' }}</h2>
@@ -44,10 +52,11 @@
           </button>
           <button 
             v-else
-            :class="['ready-btn', { ready: isReady }]"
+            :class="['ready-btn', { ready: isReady, tournament: isTournamentRoom }]"
             @click="toggleReady"
+            :disabled="isTournamentRoom"
           >
-            {{ isReady ? '取消准备' : '准备' }}
+            {{ isTournamentRoom ? (isReady ? '已准备 (锦标赛自动)' : '准备中...') : (isReady ? '取消准备' : '准备') }}
           </button>
         </div>
       </div>
@@ -68,7 +77,7 @@
           </div>
         </div>
 
-        <div v-if="isHost" class="settings-section">
+        <div v-if="isHost && !isTournamentRoom" class="settings-section">
           <h3>房间设置</h3>
           
           <div class="setting-item">
@@ -85,6 +94,12 @@
             </div>
           </div>
         </div>
+
+        <div v-if="isTournamentRoom" class="tournament-settings-notice">
+          <h3>锦标赛设置</h3>
+          <p>此房间为锦标赛分站赛房间</p>
+          <p>圈数已由锦标赛组织者预设: <strong>{{ room?.totalLaps }} 圈</strong></p>
+        </div>
       </div>
     </div>
   </div>
@@ -93,7 +108,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { Room, Player, Track } from '../types/game';
+import type { Room, Player, Track, TournamentStanding } from '../types/game';
 import { drawBezierPath } from '../utils/bezier';
 
 const route = useRoute();
@@ -111,7 +126,16 @@ const isHost = ref(false);
 const isReady = ref(false);
 const totalLaps = ref(3);
 
+const isTournamentRoom = ref(false);
+const tournamentInfo = ref<{
+  tournamentId: string;
+  tournamentName: string;
+  stageIndex: number;
+} | null>(null);
+const tournamentStandings = ref<TournamentStanding[]>([]);
+
 let pollInterval: number | null = null;
+let autoReadySent = false;
 
 onMounted(() => {
   const savedId = localStorage.getItem('playerId');
@@ -120,6 +144,23 @@ onMounted(() => {
   if (savedId) playerId.value = savedId;
   if (savedName) playerName.value = savedName;
 
+  const tournamentCtx = localStorage.getItem('tournamentContext');
+  if (tournamentCtx) {
+    try {
+      const ctx = JSON.parse(tournamentCtx);
+      isTournamentRoom.value = true;
+      tournamentInfo.value = {
+        tournamentId: ctx.tournamentId,
+        tournamentName: ctx.tournamentName,
+        stageIndex: ctx.stageIndex
+      };
+      loadTournamentStandings(ctx.tournamentId);
+    } catch (e) {
+      console.error('Failed to parse tournament context:', e);
+    }
+  }
+
+  joinRoom();
   loadRoom();
   pollInterval = window.setInterval(loadRoom, 2000);
 });
@@ -140,6 +181,38 @@ watch([room, players], () => {
   }
 });
 
+async function joinRoom() {
+  try {
+    const engineType = localStorage.getItem('engineType') || 'balanced';
+    const colorIndex = parseInt(localStorage.getItem('colorIndex') || '0', 10);
+    
+    await fetch(`/api/rooms/${roomId.value}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerId: playerId.value,
+        playerName: playerName.value,
+        engineType,
+        colorIndex
+      })
+    });
+  } catch (e) {
+    console.error('Failed to join room:', e);
+  }
+}
+
+async function loadTournamentStandings(tournamentId: string) {
+  try {
+    const res = await fetch(`/api/tournaments/${tournamentId}/standings`);
+    const data = await res.json();
+    if (data.standings) {
+      tournamentStandings.value = data.standings;
+    }
+  } catch (e) {
+    console.error('Failed to load tournament standings:', e);
+  }
+}
+
 async function loadRoom() {
   try {
     const res = await fetch(`/api/rooms/${roomId.value}`);
@@ -152,6 +225,23 @@ async function loadRoom() {
       if (player) {
         isHost.value = player.isHost;
         isReady.value = player.isReady;
+      }
+
+      if (isTournamentRoom.value && player && !player.isReady && !autoReadySent) {
+        autoReadySent = true;
+        setTimeout(() => {
+          fetch(`/api/rooms/${roomId.value}/ready`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              playerId: playerId.value,
+              isReady: true
+            })
+          }).then(() => {
+            isReady.value = true;
+            loadRoom();
+          });
+        }, 500);
       }
 
       if (!track.value || track.value.id !== data.room.trackId) {
@@ -228,6 +318,10 @@ function getTrackBounds(track: Track) {
 }
 
 async function toggleReady() {
+  if (isTournamentRoom.value) {
+    return;
+  }
+  
   try {
     const res = await fetch(`/api/rooms/${roomId.value}/ready`, {
       method: 'POST',
@@ -253,6 +347,11 @@ async function setLaps(laps: number) {
 
 const canStart = computed(() => {
   if (!isHost.value) return false;
+  if (isTournamentRoom.value) {
+    const readyCount = players.value.filter(p => p.isReady && !p.disconnected).length;
+    const tournamentPlayerCount = tournamentInfo.value ? tournamentStandings.value.length : 0;
+    return readyCount >= Math.max(2, Math.min(tournamentPlayerCount, players.value.length));
+  }
   const readyCount = players.value.filter(p => p.isReady && !p.disconnected).length;
   return readyCount >= 2;
 });
@@ -290,7 +389,13 @@ async function leaveRoom() {
     console.error('Failed to leave room:', e);
   }
   
-  router.push('/rooms');
+  localStorage.removeItem('tournamentContext');
+  
+  if (isTournamentRoom.value && tournamentInfo.value) {
+    router.push(`/tournament/${tournamentInfo.value.tournamentId}`);
+  } else {
+    router.push('/rooms');
+  }
 }
 </script>
 
@@ -304,6 +409,64 @@ async function leaveRoom() {
   color: #fff;
   padding: 20px;
   box-sizing: border-box;
+}
+
+.tournament-banner {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  padding: 12px 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+}
+
+.tournament-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tournament-label {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.tournament-name {
+  font-size: 16px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 8px;
+}
+
+.stage-info {
+  font-size: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 4px 12px;
+  border-radius: 8px;
+}
+
+.tournament-settings-notice {
+  background: rgba(240, 147, 251, 0.1);
+  border: 1px solid rgba(240, 147, 251, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.tournament-settings-notice h3 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #f093fb;
+}
+
+.tournament-settings-notice p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.tournament-settings-notice strong {
+  color: #f093fb;
 }
 
 .header {
@@ -471,6 +634,11 @@ async function leaveRoom() {
   background: rgba(46, 213, 115, 0.2);
   border-color: #2ed573;
   color: #2ed573;
+}
+
+.ready-btn.tournament {
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
 .start-btn {

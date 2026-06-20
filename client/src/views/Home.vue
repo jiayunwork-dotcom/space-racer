@@ -16,6 +16,11 @@
           <span>快速游戏</span>
         </button>
         
+        <button class="menu-btn tournament" @click="goToTournaments">
+          <span class="btn-icon">🏁</span>
+          <span>锦标赛</span>
+        </button>
+        
         <button class="menu-btn" @click="goToGhostRace">
           <span class="btn-icon">👻</span>
           <span>幽灵赛</span>
@@ -137,6 +142,11 @@ function goToGhostRace() {
   saveSettings();
   router.push('/ghost-race');
 }
+
+function goToTournaments() {
+  saveSettings();
+  router.push('/tournaments');
+}
 </script>
 
 <style scoped>
@@ -254,6 +264,17 @@ function goToGhostRace() {
 
 .menu-btn.primary:hover {
   box-shadow: 0 6px 30px rgba(78, 205, 196, 0.6);
+  transform: translateY(-2px);
+}
+
+.menu-btn.tournament {
+  background: linear-gradient(135deg, #f093fb, #f5576c);
+  border-color: transparent;
+  box-shadow: 0 4px 20px rgba(245, 87, 108, 0.4);
+}
+
+.menu-btn.tournament:hover {
+  box-shadow: 0 6px 30px rgba(245, 87, 108, 0.6);
   transform: translateY(-2px);
 }
 

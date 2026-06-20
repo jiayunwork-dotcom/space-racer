@@ -22,7 +22,7 @@
         </div>
         <div class="result-buttons">
           <button class="replay-btn" @click="viewReplay">查看回放</button>
-          <button class="back-btn" @click="backToLobby">返回大厅</button>
+          <button class="back-btn" @click="backToLobby">{{ isTournamentRoom ? '返回锦标赛' : '返回大厅' }}</button>
         </div>
       </div>
     </div>
@@ -59,6 +59,9 @@ const ships = ref<Ship[]>([]);
 const raceStartTime = ref(0);
 const totalLaps = ref(3);
 
+const isTournamentRoom = ref(false);
+const tournamentId = ref<string | null>(null);
+
 let renderer: GameRenderer | null = null;
 let gameClient: GameClient | null = null;
 let inputManager: InputManager | null = null;
@@ -90,6 +93,17 @@ const playerShip = computed(() => {
 onMounted(() => {
   const savedId = localStorage.getItem('playerId');
   if (savedId) playerId.value = savedId;
+
+  const tournamentCtx = localStorage.getItem('tournamentContext');
+  if (tournamentCtx) {
+    try {
+      const ctx = JSON.parse(tournamentCtx);
+      isTournamentRoom.value = true;
+      tournamentId.value = ctx.tournamentId;
+    } catch (e) {
+      console.error('Failed to parse tournament context:', e);
+    }
+  }
 
   initGame();
 });
@@ -250,7 +264,13 @@ function formatTime(ms: number): string {
 }
 
 function backToLobby() {
-  router.push(`/room/${roomId.value}`);
+  localStorage.removeItem('tournamentContext');
+  
+  if (isTournamentRoom.value && tournamentId.value) {
+    router.push(`/tournament/${tournamentId.value}`);
+  } else {
+    router.push(`/room/${roomId.value}`);
+  }
 }
 
 async function viewReplay() {

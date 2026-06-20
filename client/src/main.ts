@@ -10,6 +10,8 @@ import RoomLobby from './views/RoomLobby.vue'
 import GhostRace from './views/GhostRace.vue'
 import GhostRaceGame from './views/GhostRaceGame.vue'
 import ReplayView from './views/ReplayView.vue'
+import TournamentLobby from './views/TournamentLobby.vue'
+import TournamentDetail from './views/TournamentDetail.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,7 +24,9 @@ const router = createRouter({
     { path: '/room/:roomId', component: RoomLobby },
     { path: '/ghost-race', component: GhostRace },
     { path: '/ghost-race-game', component: GhostRaceGame },
-    { path: '/replay/:replayId', component: ReplayView }
+    { path: '/replay/:replayId', component: ReplayView },
+    { path: '/tournaments', component: TournamentLobby },
+    { path: '/tournament/:tournamentId', component: TournamentDetail }
   ]
 })
 

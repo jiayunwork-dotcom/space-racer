@@ -1,7 +1,8 @@
-import type { Room, Player, Track, Ship, EngineType, ShipColorIndex, Replay, ReplayFrame, RaceReplay } from '../types/game';
+import type { Room, Player, Track, Ship, EngineType, ShipColorIndex, Replay, ReplayFrame, RaceReplay, TournamentStageResult } from '../types/game';
 import { v4 as uuidv4 } from 'uuid';
 import { getTrack, incrementTrackPlayCount, addLeaderboardEntry, addGlobalWin, addGlobalRace, saveReplay, saveRaceReplay, getRaceReplay } from './redis';
 import { createGameEngine, createShip, updateGame, getRaceResults, type GameEngineState } from '../game/engine';
+import { submitStageResults, markStageRacing } from './tournaments';
 import {
   createReplayRecorder,
   startRecording,
@@ -28,9 +29,25 @@ interface RoomState {
   raceStartTime: number;
   replayRecorder: ReplayRecorderState | null;
   lastRaceReplayId: string | null;
+  tournamentId: string | null;
+  tournamentStageIndex: number | null;
 }
 
 const rooms = new Map<string, RoomState>();
+const tournamentRooms = new Map<string, { tournamentId: string; stageIndex: number }>();
+
+export function setTournamentRoom(roomId: string, tournamentId: string, stageIndex: number): void {
+  tournamentRooms.set(roomId, { tournamentId, stageIndex });
+  const state = rooms.get(roomId);
+  if (state) {
+    state.tournamentId = tournamentId;
+    state.tournamentStageIndex = stageIndex;
+  }
+}
+
+export function getTournamentForRoom(roomId: string): { tournamentId: string; stageIndex: number } | null {
+  return tournamentRooms.get(roomId) || null;
+}
 
 export function createRoom(
   hostId: string,
@@ -71,6 +88,8 @@ export function createRoom(
     createdAt: Date.now()
   };
 
+  const tournamentInfo = tournamentRooms.get(roomId);
+  
   rooms.set(roomId, {
     room,
     engine: null,
@@ -80,7 +99,9 @@ export function createRoom(
     replayData: new Map(),
     raceStartTime: 0,
     replayRecorder: null,
-    lastRaceReplayId: null
+    lastRaceReplayId: null,
+    tournamentId: tournamentInfo?.tournamentId || null,
+    tournamentStageIndex: tournamentInfo?.stageIndex || null
   });
 
   return room;
@@ -256,6 +277,10 @@ export async function startGame(roomId: string, hostId: string): Promise<Room | 
 
   await incrementTrackPlayCount(room.trackId);
 
+  if (state.tournamentId && state.tournamentStageIndex !== null) {
+    await markStageRacing(state.tournamentId, state.tournamentStageIndex);
+  }
+
   return room;
 }
 
@@ -395,6 +420,43 @@ async function handleRaceFinish(roomId: string): Promise<void> {
   }
 
   const results = getRaceResults(state.engine);
+
+  if (state.tournamentId && state.tournamentStageIndex !== null) {
+    try {
+      const tournamentResults: TournamentStageResult[] = results.map((ship, idx) => ({
+        playerId: ship.playerId,
+        playerName: ship.playerName,
+        position: ship.finished && ship.finishPosition ? ship.finishPosition : null,
+        time: ship.finishTime ? ship.finishTime - state.raceStartTime : null,
+        points: 0,
+        disconnected: state.room.players.find(p => p.id === ship.playerId)?.disconnected || false
+      }));
+
+      const disconnectedPlayers = state.room.players.filter(p => 
+        p.disconnected && !tournamentResults.some(r => r.playerId === p.id)
+      );
+      
+      for (const dp of disconnectedPlayers) {
+        tournamentResults.push({
+          playerId: dp.id,
+          playerName: dp.name,
+          position: null,
+          time: null,
+          points: 0,
+          disconnected: true
+        });
+      }
+
+      await submitStageResults(state.tournamentId, {
+        stageIndex: state.tournamentStageIndex,
+        results: tournamentResults
+      });
+      
+      console.log(`[Tournament] Submitted results for tournament ${state.tournamentId} stage ${state.tournamentStageIndex}`);
+    } catch (err) {
+      console.error('[Tournament] Failed to submit results:', err);
+    }
+  }
 
   if (state.replayRecorder) {
     try {

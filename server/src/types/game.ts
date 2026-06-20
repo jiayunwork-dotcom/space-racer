@@ -326,3 +326,107 @@ export const PHYSICS_CONFIG = {
   respawnTime: 2,
   disconnectTimeout: 5
 };
+
+export const POINTS_SYSTEM: Record<number, number> = {
+  1: 25,
+  2: 18,
+  3: 15,
+  4: 12,
+  5: 10,
+  6: 8,
+  7: 6,
+  8: 4
+};
+
+export const TOURNAMENT_PREPARATION_TIME = 30000;
+export const TOURNAMENT_MIN_STAGES = 3;
+export const TOURNAMENT_MAX_STAGES = 6;
+export const TOURNAMENT_MAX_PLAYERS = 8;
+
+export type TournamentStatus = 'registering' | 'ongoing' | 'finished';
+
+export type StageStatus = 'pending' | 'preparing' | 'racing' | 'completed';
+
+export interface TournamentStage {
+  trackId: string;
+  trackName: string;
+  laps: number;
+  status: StageStatus;
+  preparationEndTime: number | null;
+  roomId: string | null;
+}
+
+export interface TournamentPlayer {
+  playerId: string;
+  playerName: string;
+  colorIndex: number;
+  registrationOrder: number;
+}
+
+export interface TournamentStageResult {
+  playerId: string;
+  playerName: string;
+  position: number | null;
+  time: number | null;
+  points: number;
+  disconnected: boolean;
+}
+
+export interface TournamentStanding {
+  playerId: string;
+  playerName: string;
+  colorIndex: number;
+  totalPoints: number;
+  stageResults: (TournamentStageResult | null)[];
+  bestPositions: number[];
+  registrationOrder: number;
+}
+
+export interface Tournament {
+  id: string;
+  name: string;
+  creatorId: string;
+  creatorName: string;
+  status: TournamentStatus;
+  stages: TournamentStage[];
+  currentStageIndex: number;
+  players: TournamentPlayer[];
+  stageResults: TournamentStageResult[][];
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+export interface CurrentStageStatus {
+  stageIndex: number;
+  stage: TournamentStage;
+  preparationEndTime: number | null;
+  canEnterRace: boolean;
+  countdownRemaining: number;
+}
+
+export function calculatePoints(position: number | null, disconnected: boolean): number {
+  if (disconnected || position === null || position < 1 || position > 8) {
+    return 0;
+  }
+  return POINTS_SYSTEM[position] || 0;
+}
+
+export function sortStandings(standings: TournamentStanding[]): TournamentStanding[] {
+  return [...standings].sort((a, b) => {
+    if (b.totalPoints !== a.totalPoints) {
+      return b.totalPoints - a.totalPoints;
+    }
+
+    const maxLen = Math.max(a.bestPositions.length, b.bestPositions.length);
+    for (let i = 0; i < maxLen; i++) {
+      const aPos = a.bestPositions[i] ?? Infinity;
+      const bPos = b.bestPositions[i] ?? Infinity;
+      if (aPos !== bPos) {
+        return aPos - bPos;
+      }
+    }
+
+    return a.registrationOrder - b.registrationOrder;
+  });
+}

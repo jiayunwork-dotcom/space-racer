@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
-import type { Track, LeaderboardEntry, GlobalLeaderboardEntry, Replay, RaceReplay } from '../types/game';
+import type { Track, LeaderboardEntry, GlobalLeaderboardEntry, Replay, RaceReplay, Tournament, TournamentStanding, TournamentStageResult, TournamentPlayer } from '../types/game';
 import { getBuiltInTracks } from '../game/tracks';
+import { calculatePoints, sortStandings } from '../types/game';
 
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
@@ -233,4 +234,262 @@ export async function getRaceReplaysForRoom(roomId: string, limit: number = 10):
   }
   
   return replays;
+}
+
+function getTournamentKey(tournamentId: string): string {
+  return `tournament:${tournamentId}`;
+}
+
+function getTournamentListKey(status: string): string {
+  return `tournaments:${status}`;
+}
+
+export async function saveTournament(tournament: Tournament): Promise<void> {
+  const r = getRedis();
+  const key = getTournamentKey(tournament.id);
+  await r.set(key, JSON.stringify(tournament));
+  
+  await r.srem(getTournamentListKey('registering'), tournament.id);
+  await r.srem(getTournamentListKey('ongoing'), tournament.id);
+  await r.srem(getTournamentListKey('finished'), tournament.id);
+  await r.sadd(getTournamentListKey(tournament.status), tournament.id);
+}
+
+export async function getTournament(tournamentId: string): Promise<Tournament | null> {
+  const r = getRedis();
+  const key = getTournamentKey(tournamentId);
+  const data = await r.get(key);
+  if (!data) return null;
+  return JSON.parse(data) as Tournament;
+}
+
+export async function getTournamentsByStatus(status: 'registering' | 'ongoing' | 'finished'): Promise<Tournament[]> {
+  const r = getRedis();
+  const key = getTournamentListKey(status);
+  const ids = await r.smembers(key);
+  const tournaments: Tournament[] = [];
+  
+  for (const id of ids) {
+    const tournament = await getTournament(id);
+    if (tournament) {
+      tournaments.push(tournament);
+    }
+  }
+  
+  return tournaments.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function deleteTournament(tournamentId: string): Promise<void> {
+  const r = getRedis();
+  const key = getTournamentKey(tournamentId);
+  await r.del(key);
+  await r.srem(getTournamentListKey('registering'), tournamentId);
+  await r.srem(getTournamentListKey('ongoing'), tournamentId);
+  await r.srem(getTournamentListKey('finished'), tournamentId);
+}
+
+export async function addPlayerToTournament(
+  tournamentId: string,
+  player: TournamentPlayer
+): Promise<Tournament | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  const existingPlayer = tournament.players.find(p => p.playerId === player.playerId);
+  if (existingPlayer) return tournament;
+  
+  tournament.players.push(player);
+  await saveTournament(tournament);
+  return tournament;
+}
+
+export async function updateTournamentStatus(
+  tournamentId: string,
+  status: 'registering' | 'ongoing' | 'finished'
+): Promise<Tournament | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  tournament.status = status;
+  if (status === 'ongoing' && !tournament.startedAt) {
+    tournament.startedAt = Date.now();
+  }
+  if (status === 'finished') {
+    tournament.finishedAt = Date.now();
+  }
+  
+  await saveTournament(tournament);
+  return tournament;
+}
+
+export async function submitStageResult(
+  tournamentId: string,
+  stageIndex: number,
+  results: TournamentStageResult[]
+): Promise<Tournament | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  tournament.stageResults[stageIndex] = results;
+  
+  if (tournament.stages[stageIndex]) {
+    tournament.stages[stageIndex].status = 'completed';
+  }
+  
+  if (stageIndex >= tournament.stages.length - 1) {
+    tournament.status = 'finished';
+    tournament.finishedAt = Date.now();
+  } else {
+    tournament.currentStageIndex = stageIndex + 1;
+    const nextStage = tournament.stages[stageIndex + 1];
+    if (nextStage) {
+      nextStage.status = 'pending';
+      nextStage.preparationEndTime = null;
+      nextStage.roomId = null;
+    }
+  }
+  
+  await saveTournament(tournament);
+  return tournament;
+}
+
+export async function startStagePreparation(
+  tournamentId: string,
+  stageIndex: number,
+  roomId: string
+): Promise<Tournament | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  const stage = tournament.stages[stageIndex];
+  if (!stage) return null;
+  
+  stage.status = 'preparing';
+  stage.preparationEndTime = Date.now() + 30000;
+  stage.roomId = roomId;
+  
+  await saveTournament(tournament);
+  return tournament;
+}
+
+export async function setStageRacing(
+  tournamentId: string,
+  stageIndex: number
+): Promise<Tournament | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  const stage = tournament.stages[stageIndex];
+  if (!stage) return null;
+  
+  stage.status = 'racing';
+  
+  await saveTournament(tournament);
+  return tournament;
+}
+
+function buildPlayerStandings(
+  tournament: Tournament
+): TournamentStanding[] {
+  const standings: Map<string, TournamentStanding> = new Map();
+  
+  for (const player of tournament.players) {
+    standings.set(player.playerId, {
+      playerId: player.playerId,
+      playerName: player.playerName,
+      colorIndex: player.colorIndex,
+      totalPoints: 0,
+      stageResults: [],
+      bestPositions: [],
+      registrationOrder: player.registrationOrder
+    });
+  }
+  
+  for (let stageIdx = 0; stageIdx < tournament.stages.length; stageIdx++) {
+    const stageResults = tournament.stageResults[stageIdx];
+    if (!stageResults) {
+      for (const standing of standings.values()) {
+        standing.stageResults.push(null);
+      }
+      continue;
+    }
+    
+    for (const result of stageResults) {
+      const standing = standings.get(result.playerId);
+      if (standing) {
+        const points = calculatePoints(result.position, result.disconnected);
+        result.points = points;
+        standing.stageResults.push(result);
+        standing.totalPoints += points;
+        
+        if (result.position !== null && !result.disconnected) {
+          standing.bestPositions.push(result.position);
+        }
+      }
+    }
+  }
+  
+  for (const standing of standings.values()) {
+    standing.bestPositions.sort((a, b) => a - b);
+  }
+  
+  return sortStandings(Array.from(standings.values()));
+}
+
+export async function getTournamentStandings(
+  tournamentId: string
+): Promise<TournamentStanding[] | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  return buildPlayerStandings(tournament);
+}
+
+export async function getCurrentStageStatus(
+  tournamentId: string
+): Promise<{ tournament: Tournament; standings: TournamentStanding[]; canEnterRace: boolean; countdownRemaining: number } | null> {
+  const tournament = await getTournament(tournamentId);
+  if (!tournament) return null;
+  
+  const standings = buildPlayerStandings(tournament);
+  
+  if (tournament.status !== 'ongoing') {
+    return {
+      tournament,
+      standings,
+      canEnterRace: false,
+      countdownRemaining: 0
+    };
+  }
+  
+  const currentStage = tournament.stages[tournament.currentStageIndex];
+  if (!currentStage) {
+    return {
+      tournament,
+      standings,
+      canEnterRace: false,
+      countdownRemaining: 0
+    };
+  }
+  
+  let canEnterRace = false;
+  let countdownRemaining = 0;
+  
+  if (currentStage.status === 'preparing' && currentStage.preparationEndTime) {
+    countdownRemaining = Math.max(0, currentStage.preparationEndTime - Date.now());
+    canEnterRace = countdownRemaining > 0;
+  } else if (currentStage.status === 'pending') {
+    canEnterRace = false;
+    countdownRemaining = 0;
+  } else if (currentStage.status === 'racing') {
+    canEnterRace = true;
+    countdownRemaining = 0;
+  }
+  
+  return {
+    tournament,
+    standings,
+    canEnterRace,
+    countdownRemaining
+  };
 }

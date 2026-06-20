@@ -3,6 +3,18 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack, getRaceReplay, getRaceReplaysForRoom, getLatestRaceReplayForRoom } from './services/redis';
 import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer, getLastRaceReplayId } from './services/rooms';
+import {
+  createTournament,
+  listTournaments,
+  getTournamentDetail,
+  joinTournament,
+  startTournament,
+  getCurrentStage,
+  createStageRoom,
+  submitStageResults,
+  getStandings,
+  markStageRacing
+} from './services/tournaments';
 import type { Track } from './types/game';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -205,6 +217,140 @@ app.post('/api/rooms/:id/start', async (request, reply) => {
     return { error: 'Cannot start game' };
   }
   return { room };
+});
+
+app.post('/api/tournaments', async (request, reply) => {
+  try {
+    const body = request.body as any;
+    const result = await createTournament({
+      name: body.name || '新锦标赛',
+      creatorId: body.creatorId,
+      creatorName: body.creatorName || '创建者',
+      stages: body.stages || []
+    });
+    if (result.error) {
+      reply.code(400);
+      return { error: result.error };
+    }
+    reply.code(201);
+    return { tournament: result.tournament };
+  } catch (error) {
+    reply.code(400);
+    return { error: '创建锦标赛失败' };
+  }
+});
+
+app.get('/api/tournaments', async (request, reply) => {
+  const query = request.query as any;
+  const status = query.status || 'registering';
+  if (!['registering', 'ongoing', 'finished'].includes(status)) {
+    reply.code(400);
+    return { error: '无效的状态参数' };
+  }
+  const tournaments = await listTournaments(status as any);
+  return { tournaments };
+});
+
+app.get('/api/tournaments/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const result = await getTournamentDetail(id);
+  if (result.error) {
+    reply.code(404);
+    return { error: result.error };
+  }
+  return { tournament: result.tournament, standings: result.standings };
+});
+
+app.post('/api/tournaments/:id/join', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as any;
+  const result = await joinTournament(id, {
+    playerId: body.playerId,
+    playerName: body.playerName || '玩家'
+  });
+  if (result.error) {
+    reply.code(400);
+    return { error: result.error };
+  }
+  return { tournament: result.tournament };
+});
+
+app.post('/api/tournaments/:id/start', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as any;
+  const result = await startTournament(id, body.playerId);
+  if (result.error) {
+    reply.code(400);
+    return { error: result.error };
+  }
+  return { tournament: result.tournament };
+});
+
+app.get('/api/tournaments/:id/current-stage', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const result = await getCurrentStage(id);
+  if (result.error) {
+    reply.code(404);
+    return { error: result.error };
+  }
+  return {
+    tournament: result.tournament,
+    standings: result.standings,
+    canEnterRace: result.canEnterRace,
+    countdownRemaining: result.countdownRemaining,
+    currentStage: result.currentStage,
+    currentStageIndex: result.currentStageIndex
+  };
+});
+
+app.post('/api/tournaments/:id/create-stage-room', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as any;
+  const result = await createStageRoom(id, body.playerId);
+  if (result.error) {
+    reply.code(400);
+    return { error: result.error };
+  }
+  return { tournament: result.tournament, roomId: result.roomId };
+});
+
+app.post('/api/tournaments/:id/mark-racing', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as any;
+  const result = await markStageRacing(id, body.stageIndex);
+  if (result.error) {
+    reply.code(400);
+    return { error: result.error };
+  }
+  return { tournament: result.tournament };
+});
+
+app.post('/api/tournaments/:id/submit-result', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const body = request.body as any;
+  const result = await submitStageResults(id, {
+    stageIndex: body.stageIndex,
+    results: body.results || []
+  });
+  if (result.error) {
+    reply.code(400);
+    return { error: result.error };
+  }
+  return {
+    tournament: result.tournament,
+    standings: result.standings,
+    isFinished: result.isFinished
+  };
+});
+
+app.get('/api/tournaments/:id/standings', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const result = await getStandings(id);
+  if (result.error) {
+    reply.code(404);
+    return { error: result.error };
+  }
+  return { standings: result.standings };
 });
 
 app.register(async (fastify) => {
