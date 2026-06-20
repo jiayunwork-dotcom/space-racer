@@ -363,13 +363,73 @@ export class GameRenderer {
 
     for (const ship of ships) {
       if (ship.isRespawning) continue;
-      this.drawShip(ship, ship.id === playerShipId);
+      this.drawShipInternal(ship, ship.id === playerShipId);
     }
 
     ctx.restore();
   }
 
-  private drawShip(ship: Ship, isPlayer: boolean): void {
+  drawGhostShip(ship: Ship): void {
+    const ctx = this.ctx;
+    
+    ctx.save();
+    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-this.cameraX, -this.cameraY);
+
+    const { x, y } = ship.position;
+    const angle = ship.angle;
+    const color = '#a29bfe';
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = 0.5;
+
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 15;
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(PHYSICS_CONFIG.shipRadius, 0);
+    ctx.lineTo(-PHYSICS_CONFIG.shipRadius * 0.7, -PHYSICS_CONFIG.shipRadius * 0.7);
+    ctx.lineTo(-PHYSICS_CONFIG.shipRadius * 0.4, 0);
+    ctx.lineTo(-PHYSICS_CONFIG.shipRadius * 0.7, PHYSICS_CONFIG.shipRadius * 0.7);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.beginPath();
+    ctx.arc(PHYSICS_CONFIG.shipRadius * 0.2, 0, PHYSICS_CONFIG.shipRadius * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = '#a29bfe';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${ship.playerName} (幽灵)`, x, y - PHYSICS_CONFIG.shipRadius - 10);
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+  }
+
+  drawShip(ship: Ship, isPlayer: boolean): void {
+    const ctx = this.ctx;
+    
+    ctx.save();
+    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-this.cameraX, -this.cameraY);
+
+    this.drawShipInternal(ship, isPlayer);
+
+    ctx.restore();
+  }
+
+  private drawShipInternal(ship: Ship, isPlayer: boolean): void {
     const ctx = this.ctx;
     const { x, y } = ship.position;
     const angle = ship.angle;
@@ -426,6 +486,70 @@ export class GameRenderer {
       ctx.font = 'bold 14px Arial';
       ctx.fillText('💫', x, y - PHYSICS_CONFIG.shipRadius - 20);
     }
+  }
+
+  drawEnvElement(element: EnvElement): void {
+    const ctx = this.ctx;
+    
+    ctx.save();
+    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-this.cameraX, -this.cameraY);
+
+    switch (element.type) {
+      case 'asteroid':
+        this.drawAsteroid(element);
+        break;
+      case 'gravityWell':
+        this.drawGravityWell(element);
+        break;
+      case 'speedBoost':
+        this.drawSpeedBoost(element);
+        break;
+      case 'slowdown':
+        this.drawSlowdown(element);
+        break;
+    }
+
+    ctx.restore();
+  }
+
+  drawCheckpoint(checkpoint: Checkpoint, currentCheckpoint: number): void {
+    const ctx = this.ctx;
+    
+    ctx.save();
+    ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+    ctx.scale(this.zoom, this.zoom);
+    ctx.translate(-this.cameraX, -this.cameraY);
+
+    const { x, y } = checkpoint.position;
+    const isNext = checkpoint.index === (currentCheckpoint + 1);
+    const isPassed = checkpoint.index <= currentCheckpoint;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(checkpoint.direction);
+
+    ctx.strokeStyle = isNext ? '#f9ca24' : isPassed ? '#2ed573' : 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = isNext ? 4 : 2;
+    ctx.setLineDash(isNext ? [] : [10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(-40, -30);
+    ctx.lineTo(40, -30);
+    ctx.lineTo(40, 30);
+    ctx.lineTo(-40, 30);
+    ctx.closePath();
+    ctx.stroke();
+
+    if (isNext) {
+      ctx.shadowColor = '#f9ca24';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+    }
+
+    ctx.setLineDash([]);
+    ctx.restore();
+    ctx.restore();
   }
 
   drawProjectiles(projectiles: Projectile[]): void {

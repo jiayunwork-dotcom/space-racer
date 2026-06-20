@@ -1,6 +1,6 @@
-import type { Room, Player, Track, Ship, EngineType, ShipColorIndex } from '../types/game';
+import type { Room, Player, Track, Ship, EngineType, ShipColorIndex, Replay, ReplayFrame } from '../types/game';
 import { v4 as uuidv4 } from 'uuid';
-import { getTrack, incrementTrackPlayCount, addLeaderboardEntry, addGlobalWin, addGlobalRace } from './redis';
+import { getTrack, incrementTrackPlayCount, addLeaderboardEntry, addGlobalWin, addGlobalRace, saveReplay } from './redis';
 import { createGameEngine, createShip, updateGame, getRaceResults, type GameEngineState } from '../game/engine';
 
 interface RoomState {
@@ -9,6 +9,8 @@ interface RoomState {
   track: Track | null;
   lastUpdate: number;
   updateInterval: NodeJS.Timeout | null;
+  replayData: Map<string, ReplayFrame[]>;
+  raceStartTime: number;
 }
 
 const rooms = new Map<string, RoomState>();
@@ -57,7 +59,9 @@ export function createRoom(
     engine: null,
     track: null,
     lastUpdate: 0,
-    updateInterval: null
+    updateInterval: null,
+    replayData: new Map(),
+    raceStartTime: 0
   });
 
   return room;
@@ -211,6 +215,11 @@ export async function startGame(roomId: string, hostId: string): Promise<Room | 
   const engine = createGameEngine(room, track);
   state.engine = engine;
 
+  state.replayData.clear();
+  for (const player of readyPlayers) {
+    state.replayData.set(player.id, []);
+  }
+
   room.gameState = 'countdown';
   room.countdownEndTime = Date.now() + 3000;
 
@@ -227,13 +236,37 @@ function startGameLoop(roomId: string): void {
 
   const tickRate = 60;
   const tickInterval = 1000 / tickRate;
+  let recordFrameCounter = 0;
 
   state.updateInterval = setInterval(() => {
     const s = rooms.get(roomId);
     if (!s || !s.engine) return;
 
     const now = Date.now();
+    
+    if (s.room.gameState === 'racing' && s.raceStartTime === 0) {
+      s.raceStartTime = now;
+    }
+
     updateGame(s.engine, now);
+
+    if (s.room.gameState === 'racing') {
+      recordFrameCounter++;
+      if (recordFrameCounter % 2 === 0) {
+        const elapsed = now - s.raceStartTime;
+        for (const ship of s.room.ships) {
+          const frames = s.replayData.get(ship.playerId);
+          if (frames && !ship.finished) {
+            frames.push({
+              timestamp: elapsed,
+              position: { ...ship.position },
+              velocity: { ...ship.velocity },
+              angle: ship.angle
+            });
+          }
+        }
+      }
+    }
 
     if (s.room.gameState === 'finished') {
       handleRaceFinish(roomId);
@@ -263,6 +296,22 @@ function handleRaceFinish(roomId: string): void {
 
     if (i === 0) {
       addGlobalWin(ship.playerName);
+    }
+
+    if (ship.finished && ship.finishTime) {
+      const frames = state.replayData.get(ship.playerId);
+      if (frames && frames.length > 0) {
+        const replay: Replay = {
+          id: uuidv4(),
+          trackId: state.track.id,
+          playerName: ship.playerName,
+          totalTime: ship.finishTime - state.raceStartTime,
+          bestLapTime: ship.bestLapTime,
+          frames,
+          createdAt: Date.now()
+        };
+        saveReplay(replay);
+      }
     }
   }
 }

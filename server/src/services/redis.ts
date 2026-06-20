@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import type { Track, LeaderboardEntry, GlobalLeaderboardEntry } from '../types/game';
+import type { Track, LeaderboardEntry, GlobalLeaderboardEntry, Replay } from '../types/game';
 import { getBuiltInTracks } from '../game/tracks';
 
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
@@ -161,4 +161,34 @@ export async function getRoomState(roomId: string): Promise<string | null> {
 export async function deleteRoomState(roomId: string): Promise<void> {
   const r = getRedis();
   await r.del(`room:${roomId}`);
+}
+
+export async function saveReplay(replay: Replay): Promise<void> {
+  const r = getRedis();
+  const key = `replay:${replay.id}`;
+  await r.set(key, JSON.stringify(replay));
+  await r.zadd(`replays:${replay.trackId}`, replay.totalTime, replay.id);
+  await r.zremrangebyrank(`replays:${replay.trackId}`, 20, -1);
+}
+
+export async function getReplay(replayId: string): Promise<Replay | null> {
+  const r = getRedis();
+  const key = `replay:${replayId}`;
+  const data = await r.get(key);
+  if (!data) return null;
+  return JSON.parse(data) as Replay;
+}
+
+export async function getReplaysForTrack(trackId: string): Promise<Replay[]> {
+  const r = getRedis();
+  const key = `replays:${trackId}`;
+  const replayIds = await r.zrange(key, 0, 19);
+  const replays: Replay[] = [];
+  
+  for (const id of replayIds) {
+    const replay = await getReplay(id);
+    if (replay) replays.push(replay);
+  }
+  
+  return replays.sort((a, b) => a.totalTime - b.totalTime);
 }

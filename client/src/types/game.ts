@@ -64,6 +64,7 @@ export interface Ship {
   lap: number;
   lapStartTime: number;
   bestLapTime: number | null;
+  totalTime: number;
   finished: boolean;
   finishTime: number | null;
   finishPosition: number | null;
@@ -71,7 +72,9 @@ export interface Ship {
   boostEndTime: number;
   stunnedUntil: number;
   slowdownUntil: number;
+  lastCheckpointPos: Vector2;
   isRespawning: boolean;
+  respawnTime: number;
   itemUses: number;
 }
 
@@ -196,13 +199,43 @@ export interface GlobalLeaderboardEntry {
   races: number;
 }
 
+export interface ReplayFrame {
+  timestamp: number;
+  position: Vector2;
+  velocity: Vector2;
+  angle: number;
+}
+
+export interface Replay {
+  id: string;
+  trackId: string;
+  playerName: string;
+  totalTime: number;
+  bestLapTime: number | null;
+  frames: ReplayFrame[];
+  createdAt: number;
+}
+
 export const PHYSICS_CONFIG = {
   linearDrag: 0.02,
+  elasticCollisionEnergyLoss: 0.7,
   shipRadius: 15,
+  shieldDamageBoundary: 15,
+  shieldDamageShipCollision: 20,
   missileSpeed: 500,
+  missileLifetime: 5,
+  missileDamage: 40,
+  missileSlowDuration: 2,
+  mineDamage: 30,
   mineRadius: 20,
   empRadius: 200,
+  empStunDuration: 1.5,
   boostDuration: 3,
+  boostMultiplier: 2,
+  slowdownFactor: 0.6,
+  speedBoostFactor: 1.5,
+  gravityStrength: 80000,
   itemSpawnCooldown: 15,
-  respawnTime: 2
+  respawnTime: 2,
+  disconnectTimeout: 5
 };

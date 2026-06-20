@@ -191,6 +191,23 @@ export interface GlobalLeaderboardEntry {
   races: number;
 }
 
+export interface ReplayFrame {
+  timestamp: number;
+  position: Vector2;
+  velocity: Vector2;
+  angle: number;
+}
+
+export interface Replay {
+  id: string;
+  trackId: string;
+  playerName: string;
+  totalTime: number;
+  bestLapTime: number | null;
+  frames: ReplayFrame[];
+  createdAt: number;
+}
+
 export const PHYSICS_CONFIG = {
   linearDrag: 0.02,
   elasticCollisionEnergyLoss: 0.7,

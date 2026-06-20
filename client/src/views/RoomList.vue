@@ -34,6 +34,7 @@
     </div>
 
     <div class="create-section">
+      <button class="ghost-race-btn" @click="goToGhostRace">👻 幽灵赛模式</button>
       <button class="create-btn" @click="showCreateModal = true">+ 创建房间</button>
     </div>
 
@@ -208,6 +209,10 @@ async function joinRoomWithId(roomId: string) {
 function goBack() {
   router.push('/');
 }
+
+function goToGhostRace() {
+  router.push('/ghost-race');
+}
 </script>
 
 <style scoped>
@@ -325,6 +330,25 @@ function goBack() {
   margin-top: 20px;
   display: flex;
   justify-content: center;
+  gap: 12px;
+}
+
+.ghost-race-btn {
+  padding: 14px 30px;
+  font-size: 16px;
+  font-weight: bold;
+  background: linear-gradient(135deg, #a29bfe, #6c5ce7);
+  border: none;
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(162, 155, 254, 0.4);
+}
+
+.ghost-race-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(162, 155, 254, 0.6);
 }
 
 .create-btn {

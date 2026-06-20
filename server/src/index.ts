@@ -1,7 +1,7 @@
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
-import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack } from './services/redis';
+import { initRedis, getAllTracks, getTrack, getLeaderboard, getGlobalLeaderboard, saveTrack, getReplay, getReplaysForTrack } from './services/redis';
 import { createRoom, getRoom, getAllRooms, joinRoom, leaveRoom, setPlayerReady, startGame, setPlayerInput, getGameStateForPlayer, disconnectPlayer, reconnectPlayer } from './services/rooms';
 import type { Track } from './types/game';
 import { v4 as uuidv4 } from 'uuid';
@@ -77,6 +77,22 @@ app.post('/api/tracks', async (request, reply) => {
 app.get('/api/rooms', async () => {
   const rooms = getAllRooms();
   return { rooms };
+});
+
+app.get('/api/replays/:trackId', async (request, reply) => {
+  const { trackId } = request.params as { trackId: string };
+  const replays = await getReplaysForTrack(trackId);
+  return { replays };
+});
+
+app.get('/api/replay/:id', async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const replay = await getReplay(id);
+  if (!replay) {
+    reply.code(404);
+    return { error: 'Replay not found' };
+  }
+  return { replay };
 });
 
 app.post('/api/rooms', async (request) => {

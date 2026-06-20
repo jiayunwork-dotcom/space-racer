@@ -4,14 +4,21 @@ import { vecAdd, vecSub, vecMul, vecDiv, vecLength, vecNormalize, vecDot, vecRef
 import type { BezierSample } from '../utils/bezier';
 import { getTrackBoundaryCollision } from '../utils/bezier';
 
+export interface CollisionResult {
+  collided: boolean;
+  normal: Vector2;
+  pushOut: Vector2;
+}
+
 export function updateShipPhysics(
   ship: Ship,
   input: InputState,
-  dt: number,
-  currentTime: number,
   envElements: EnvElement[],
   outerSamples: BezierSample[],
-  innerSamples: BezierSample[]
+  innerSamples: BezierSample[],
+  otherShips: Ship[],
+  dt: number,
+  currentTime: number
 ): { shieldDamaged: boolean; boundaryHit: boolean } {
   if (ship.finished || ship.isRespawning) {
     return { shieldDamaged: false, boundaryHit: false };
@@ -162,53 +169,33 @@ export function updateShipPhysics(
   return { shieldDamaged, boundaryHit };
 }
 
-export function updateShipCollisions(ships: Ship[]): void {
-  const radius = PHYSICS_CONFIG.shipRadius;
-  const diameter = radius * 2;
+export function getShipShipCollision(shipA: Ship, shipB: Ship, radius: number): CollisionResult {
+  const distSq = vecDistanceSq(shipA.position, shipB.position);
+  const minDist = radius * 2;
 
-  for (let i = 0; i < ships.length; i++) {
-    for (let j = i + 1; j < ships.length; j++) {
-      const shipA = ships[i];
-      const shipB = ships[j];
-
-      if (shipA.finished || shipB.finished) continue;
-      if (shipA.isRespawning || shipB.isRespawning) continue;
-
-      const distSq = vecDistanceSq(shipA.position, shipB.position);
-
-      if (distSq < diameter * diameter) {
-        const dist = Math.sqrt(distSq);
-        if (dist === 0) continue;
-
-        const normal = vecNormalize(vecSub(shipB.position, shipA.position));
-        const overlap = diameter - dist;
-
-        const configA = ENGINE_CONFIGS[shipA.engineType];
-        const configB = ENGINE_CONFIGS[shipB.engineType];
-        const totalMass = configA.mass + configB.mass;
-
-        shipA.position = vecSub(shipA.position, vecMul(normal, overlap * (configB.mass / totalMass)));
-        shipB.position = vecAdd(shipB.position, vecMul(normal, overlap * (configA.mass / totalMass)));
-
-        const relVel = vecSub(shipB.velocity, shipA.velocity);
-        const velAlongNormal = vecDot(relVel, normal);
-
-        if (velAlongNormal < 0) {
-          const restitution = PHYSICS_CONFIG.elasticCollisionEnergyLoss;
-          const impulse = -(1 + restitution) * velAlongNormal / (1 / configA.mass + 1 / configB.mass);
-          const impulseVec = vecMul(normal, impulse);
-
-          shipA.velocity = vecSub(shipA.velocity, vecDiv(impulseVec, configA.mass));
-          shipB.velocity = vecAdd(shipB.velocity, vecDiv(impulseVec, configB.mass));
-
-          const impactSpeed = Math.abs(velAlongNormal);
-          const damageFactor = impactSpeed / 200;
-          const damage = PHYSICS_CONFIG.shieldDamageShipCollision * Math.min(damageFactor, 1.5);
-
-          shipA.shield -= damage;
-          shipB.shield -= damage;
-        }
-      }
+  if (distSq < minDist * minDist) {
+    const dist = Math.sqrt(distSq);
+    if (dist === 0) {
+      return {
+        collided: true,
+        normal: { x: 0, y: -1 },
+        pushOut: { x: 0, y: -minDist }
+      };
     }
+
+    const normal = vecNormalize(vecSub(shipB.position, shipA.position));
+    const overlap = minDist - dist;
+
+    return {
+      collided: true,
+      normal,
+      pushOut: vecMul(normal, overlap * 0.5)
+    };
   }
+
+  return {
+    collided: false,
+    normal: { x: 0, y: 0 },
+    pushOut: { x: 0, y: 0 }
+  };
 }

@@ -16,6 +16,11 @@
           <span>快速游戏</span>
         </button>
         
+        <button class="menu-btn" @click="goToGhostRace">
+          <span class="btn-icon">👻</span>
+          <span>幽灵赛</span>
+        </button>
+        
         <button class="menu-btn" @click="goToEditor">
           <span class="btn-icon">✏️</span>
           <span>赛道编辑器</span>
@@ -126,6 +131,11 @@ function goToEditor() {
 function goToLeaderboard() {
   saveSettings();
   router.push('/leaderboard');
+}
+
+function goToGhostRace() {
+  saveSettings();
+  router.push('/ghost-race');
 }
 </script>
 

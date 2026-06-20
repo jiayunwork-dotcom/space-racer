@@ -1,4 +1,5 @@
 import type { Vector2 } from '../types/game';
+import { vec2, vecSub, vecMul, vecNormalize } from './vector';
 
 export function bezierPoint(points: Vector2[], t: number): Vector2 {
   if (points.length === 1) return { ...points[0] };
@@ -167,4 +168,98 @@ export function pointToBezierDistance(
   }
 
   return { distance: minDist, closestPoint, index: closestIndex };
+}
+
+export function isPointInsideClosedBezier(
+  point: Vector2,
+  samples: BezierSample[]
+): boolean {
+  let crossings = 0;
+  
+  for (let i = 0; i < samples.length - 1; i++) {
+    const p1 = samples[i].point;
+    const p2 = samples[i + 1].point;
+    
+    if (((p1.y <= point.y && p2.y > point.y) ||
+         (p1.y > point.y && p2.y <= point.y))) {
+      const t = (point.y - p1.y) / (p2.y - p1.y);
+      const xIntersect = p1.x + t * (p2.x - p1.x);
+      if (point.x < xIntersect) {
+        crossings++;
+      }
+    }
+  }
+  
+  return crossings % 2 === 1;
+}
+
+export function isPointInTrack(
+  point: Vector2,
+  outerSamples: BezierSample[],
+  innerSamples: BezierSample[]
+): boolean {
+  const insideOuter = isPointInsideClosedBezier(point, outerSamples);
+  const insideInner = isPointInsideClosedBezier(point, innerSamples);
+  return insideOuter && !insideInner;
+}
+
+export function getTrackBoundaryCollision(
+  point: Vector2,
+  radius: number,
+  outerSamples: BezierSample[],
+  innerSamples: BezierSample[]
+): { collided: boolean; normal: Vector2; pushOut: Vector2 } {
+  const insideOuter = isPointInsideClosedBezier(point, outerSamples);
+  const insideInner = isPointInsideClosedBezier(point, innerSamples);
+
+  if (insideOuter && !insideInner) {
+    const outerDist = pointToBezierDistance(point.x, point.y, outerSamples);
+    const innerDist = pointToBezierDistance(point.x, point.y, innerSamples);
+
+    if (outerDist.distance < radius) {
+      const normal = vecNormalize(vecSub(point, outerDist.closestPoint));
+      const pushAmount = radius - outerDist.distance;
+      return {
+        collided: true,
+        normal,
+        pushOut: vecMul(normal, pushAmount)
+      };
+    }
+
+    if (innerDist.distance < radius) {
+      const normal = vecNormalize(vecSub(innerDist.closestPoint, point));
+      const pushAmount = radius - innerDist.distance;
+      return {
+        collided: true,
+        normal,
+        pushOut: vecMul(normal, pushAmount)
+      };
+    }
+
+    return { collided: false, normal: vec2(), pushOut: vec2() };
+  }
+
+  if (!insideOuter) {
+    const outerDist = pointToBezierDistance(point.x, point.y, outerSamples);
+    const normal = vecNormalize(vecSub(point, outerDist.closestPoint));
+    const pushAmount = radius + outerDist.distance;
+    return {
+      collided: true,
+      normal,
+      pushOut: vecMul(normal, pushAmount)
+    };
+  }
+
+  if (insideInner) {
+    const innerDist = pointToBezierDistance(point.x, point.y, innerSamples);
+    const normal = vecNormalize(vecSub(innerDist.closestPoint, point));
+    const pushAmount = radius + innerDist.distance;
+    return {
+      collided: true,
+      normal,
+      pushOut: vecMul(normal, pushAmount)
+    };
+  }
+
+  return { collided: false, normal: vec2(), pushOut: vec2() };
 }
